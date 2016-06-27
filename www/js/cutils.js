@@ -17,3 +17,12 @@ function average(arr, prec) {
 	}
 	return Math.round(av/cnt * (prec+1)) / (prec+1);
 }
+
+function parseFloatOr(shouldbefloat) {
+    try {
+        return parseFloat(shouldbefloat);
+    } catch(err) { 
+        console.info('shouldbefloat:'+err);
+        return 0.0;
+    }
+}

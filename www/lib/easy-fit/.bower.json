@@ -1,0 +1,15 @@
+{
+  "name": "easy-fit",
+  "homepage": "https://github.com/pierremtb/easy-fit",
+  "version": "0.0.4",
+  "_release": "0.0.4",
+  "_resolution": {
+    "type": "version",
+    "tag": "0.0.4",
+    "commit": "b7584271228a9450b2656e2ac2350b8dbfea0ae4"
+  },
+  "_source": "https://github.com/pierremtb/easy-fit.git",
+  "_target": "^0.0.4",
+  "_originalSource": "https://github.com/pierremtb/easy-fit.git",
+  "_direct": true
+}

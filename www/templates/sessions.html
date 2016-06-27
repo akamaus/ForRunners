@@ -34,7 +34,7 @@
       <ion-list class="animate-fade-slide-in-right"> <!-- class="animate-fade-slide-in-right" -->
 
         <a 
-           ng-repeat="session in list_sessions track by session.recclicked"
+           collection-repeat="session in sessions"
            type="item-text-wrap"
            ng-href="{{'#/app/sessions/'+$index}}"
            class="in item item-avatar button-fab"
@@ -59,11 +59,6 @@
         </a>
 
     </ion-list>
-    <ion-infinite-scroll
-            ng-if="hasMoreData()"
-            on-infinite="loadMoreData()"
-            distance="20%">
-            </ion-infinite-scroll>
   </ion-content>
 
 </ion-view>
