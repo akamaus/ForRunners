@@ -79,7 +79,7 @@ angular.module('app.controllers', [])
 
 .controller('AppCtrl', function($state, $scope, $ionicModal, $ionicPopup, $timeout, $interval, $ionicPlatform,
     $ionicHistory, $weather, $http, $translate, $filter, $ionicScrollDelegate,
-    leafletData, leafletBoundsHelpers, Sessions, Resume, Session, Prefs) {
+    leafletData, leafletBoundsHelpers, Sessions, Resume, Session, Prefs, Bluetooth) {
     'use strict';
 
     // Version, Platform
@@ -107,7 +107,7 @@ angular.module('app.controllers', [])
     } catch(err) {
         console.warn(err);
     }
-    
+
     //GLOBALS
     $scope.running = false;
     $scope.bluetooth_scanning = false;
@@ -163,7 +163,7 @@ angular.module('app.controllers', [])
               $state.go('app.filepicker');
         } else {
            $timeout(function(){document.getElementById('gpxFile').click();},100);
-        }  
+        }
      };
 
     $scope.doFITChooser = function() {
@@ -173,7 +173,7 @@ angular.module('app.controllers', [])
               $state.go('app.filepicker');
         } else {
            $timeout(function(){document.getElementById('fitFile').click();},100);
-        }  
+        }
      };
 
     $scope.sendLogs = function() {
@@ -207,78 +207,6 @@ angular.module('app.controllers', [])
         });
 
     };
-
-    /*
-    $scope.writeGPX = function(dirEntry, filename, session) {
-        var gpxHead = '<?xml version="1.0" encoding="UTF-8" standalone="no" ?>\n';
-        gpxHead += '<gpx xmlns="http://www.topografix.com/GPX/1/1" xmlns:gpxx="http://www.garmin.com/xmlschemas/GpxExtensions/v3" xmlns:gpxtpx="http://www.garmin.com/xmlschemas/TrackPointExtension/v1" creator="ForRunners" version="1.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.topografix.com/GPX/1/1 http://www.topografix.com/GPX/1/1/gpx.xsd http://www.garmin.com/xmlschemas/GpxExtensions/v3 http://www.garmin.com/xmlschemas/GpxExtensionsv3.xsd http://www.garmin.com/xmlschemas/TrackPointExtension/v1 http://www.garmin.com/xmlschemas/TrackPointExtensionv1.xsd">';
-        gpxHead += '<metadata>\n';
-        gpxHead += '<link href="http://www.khertan.net">\n';
-        gpxHead += '<text>Khertan Software</text>\n';
-        gpxHead += '</link>\n';
-        gpxHead += '<time>' + moment().format() + '</time>\n';
-        gpxHead += '</metadata>\n';
-        gpxHead += '<trk>\n';
-        gpxHead += '<trkseg>\n';
-
-        var gpxSubHead = '';
-        var gpxFoot = '</trkseg></trk>\n</gpx>';
-
-        dirEntry.getFile(filename, {
-            create: true
-        }, function(fileEntry) {
-            fileEntry.createWriter(function(writer) {
-                // Already in JSON Format
-                writer.onwrite = function() {
-                };
-                writer.onerror = function(e) {
-                    $ionicPopup.alert({
-                        title: $scope.translateFilter('_gpx_error_title'),
-                        template: $scope.translateFilter('_gpx_error_content')
-                    });
-                    console.error(e);
-                    console.error(writer.error);
-                };
-                writer.fileName = filename; //moment(session.recclicked).format('YYYYMMDD_hhmm') + '.gpx';
-                gpxSubHead = '<name>' + session.date + '</name>\n';
-
-                var gpxPoints = '';
-                session.gpxData.map(function(pts) {
-                    gpxPoints += '<trkpt lat=\"' + pts[0] + '\" lon=\"' + pts[1] + '\">\n';
-                    gpxPoints += '<ele>' + pts[3] + '</ele>\n';
-                    gpxPoints += '<time>' + pts[2] + '</time>\n';
-                    if (pts[4] || pts[5] || pts[6] || pts[7] || pts[8]) {
-                        gpxPoints += '<extensions><gpxtpx:TrackPointExtension>';
-                        if (pts[4]) {
-                            gpxPoints += '<gpxtpx:hr>' + pts[4] + '</gpxtpx:hr>\n';
-                        }
-                        if (pts[5]) {
-                            gpxPoints += '<gpxtpx:accuracy>' + pts[5] + '</gpxtpx:accuracy>\n';
-                        }
-                        if (pts[6]) {
-                            gpxPoints += '<gpxtpx:cad>' + pts[6] + '</gpxtpx:cad>\n';
-                        }
-                        if (pts[7]) {
-                            gpxPoints += '<gpxtpx:power>' + pts[7] + '</gpxtpx:power>\n';
-                        }
-                        if (pts[8]) {
-                            gpxPoints += '<gpxtpx:stryde>' + pts[8] + '</gpxtpx:stryde>\n';
-                        }
-                        gpxPoints +=  '</gpxtpx:TrackPointExtension></extensions>';
-                    }
-                    gpxPoints += '</trkpt>\n';
-                });
-                writer.write(gpxHead + gpxSubHead + gpxPoints + gpxFoot, {
-                    type: 'text/plain'
-                });
-            }, function() {
-                console.log('failed can t create writer');
-            });
-        }, function() {
-            console.log('failed to get file');
-        });
-
-    };*/
 
     $scope.exportAGPX = function(session) {
         Session.initWith(session);
@@ -362,164 +290,37 @@ angular.module('app.controllers', [])
     };
 
     $scope.registerBluetoothDevice = function(id) {
-        if (id in $scope.prefs.registeredBLE) {
-             delete $scope.prefs.registeredBLE[id];
-       } else {
-             $scope.prefs.registeredBLE[id] = $scope.bluetooth_devices[id];
-        }
-        $scope.savePrefs();
-    };
-
-    $scope.detectBLEDevice = function() {
-        $scope.bluetooth_devices = {};
-        
-        for (var prop in $scope.prefs.registeredBLE) {
-            $scope.bluetooth_devices[prop] = {
-                'id': prop,
-                'name': $scope.prefs.registeredBLE[prop].name,
-                'registered': true
-            };
-        }
-        $scope.bluetooth_scanning = true;
-
-        try {
-            ble.startScan([], function(bledevice) {
-                $scope.$apply(function() {
-                    if (!(bledevice.id in $scope.bluetooth_devices)) {
-                        if (bledevice.id in $scope.prefs.registeredBLE) {
-                            $scope.bluetooth_devices[bledevice.id] = {
-                                'id': bledevice.id,
-                                'name': bledevice.name ? bledevice.name : 'Unknow',
-                                'registered': true
-                            };
-
-                        } else {
-                            $scope.bluetooth_devices[bledevice.id] = {
-                                'id': bledevice.id,
-                                'name': bledevice.name ? bledevice.name : 'Unknow',
-                                'registered': false
-                            };
-                        }
-                    }
-                });
-            }, function() {
-                $scope.$apply(function() {
-                    $scope.bluetooth_scanning = false;
-                });
-            });
-
-            setTimeout(function() {
-                ble.stopScan(
-                    function() {
-                        $scope.$apply(function() {
-                            $scope.bluetooth_scanning = false;
-                        });
-                    },
-                    function() {
-                        $scope.$apply(function() {
-                            $scope.bluetooth_scanning = false;
-                        });
-                    }
-                );
-            }, 5000);
-        } catch (exception) {                                                   
-            $scope.bluetooth_scanning = false;
-            console.info('BluetoothLE not available');   
-        }  
-    };
-
-    $scope.heartRateOnConnect = function(peripheral) {
-        //HEARTRATE
-        ble.notify(peripheral.id,
-            $scope.glbs.heartRate.service,
-            $scope.glbs.heartRate.measurement,
-            $scope.heartRateOnData,
-            function(err) {
-                console.error('BLE HR error :' + err);
-                $scope.session.beatsPerMinute = null;
-            });
- 
-        //CADENCE
-        ble.notify(peripheral.id,
-            $scope.glbs.cadence.service,
-            $scope.glbs.cadence.measurement,
-            $scope.cadenceOnData,
-            function(err) {
-                console.error('BLE Cadence error :' + err);
-                $scope.session.instantCadence = null;
-            });
-        
-        //POWER
-        ble.notify(peripheral.id,
-            $scope.glbs.power.service,
-            $scope.glbs.power.measurement,
-            $scope.powerOnData,
-            function(err) {
-                console.error('BLE Power error :' + err);
-                $scope.session.instantPower = null;
-                $scope.session.intantStride = null;
-            });
-        
-    };
-
-    $scope.heartRateOnData = function(buffer) {
-        var data = new DataView(buffer);
-        // https://developer.bluetooth.org/gatt/characteristics/Pages/CharacteristicViewer.aspx?u=org.bluetooth.characteristic.heart_rate_measurement.xml
-        if (data.getUint8(0) === 0x1000) {
-            $scope.session.beatsPerMinute = data.getUint16(1);
-        } else {
-            $scope.session.beatsPerMinute = data.getUint8(1);
+        var devices = Prefs.get('registeredBLE');
+        if (id in devices) {
+            delete devices[id];
+            Prefs.set('registeredBLE', devices);
+      } else {
+            devices[id] = $scope.bluetooth_devices[id];
+            Prefs.set('registeredBLE', devices);
         }
     };
 
-
-    $scope.cadenceOnData = function(buffer) {
-        //
-        var data = new DataView(buffer);
-        $scope.session.instantCadence = data.getUint8(3);
-        console.log('Instant Cadence' + $scope.session.instantCadence);
-        console.log('Data1' + data.getUint8(1));
-        console.log('Data2' + data.getUint8(2));
-        console.log('Data3' + data.getUint8(3));
-        console.log('Data4' + data.getUint8(4));
-
-        if (data.getUint8(0) === 0x1000) {
-            $scope.session.instantStride = data.getUint16(4);}
+    $scope.onHeartRateDatas = function(bpms) {
+        Session.setBPMS(bpms);
     };
 
-    $scope.powerOnData = function(buffer) {
-        //https://developer.bluetooth.org/gatt/characteristics/Pages/CharacteristicViewer.aspx?u=org.bluetooth.characteristic.cycling_power_measurement.xml
-        var data = new DataView(buffer);
-        $scope.session.instantPower = data.getInt16(2, true);
+    $scope.onHeartRateError = function(msg) {
+        Session.setBPMS(undefined);
+        console.log(msg);
     };
 
-    $scope.heartRateOnDisconnect = function(reason) {
-        console.debug('BLE Disconnected:' + reason);
-        $scope.session.beatsPerMinute = null;
+
+    $scope.onCadenceDatas = function(cadence) {
+        Session.setCadence(cadence);
     };
+
+    $scope.onPowerDatas = function(watts) {
+        Session.setPower(watts);
+    };
+
 
     $scope.heartRateScan = function() {
-        // https://developer.bluetooth.org/gatt/services/Pages/ServiceViewer.aspx?u=org.bluetooth.service.heart_rate.xml
-        if ((Object.keys($scope.prefs.registeredBLE).length > 0) && ($scope.session.beatsPerMinute === null)) {
-            ble.scan([$scope.glbs.heartRate.service], 5,
-                //onScan
-                function(peripheral) {
-                    console.debug('Found ' + JSON.stringify(peripheral));
-
-                    if (peripheral.id in $scope.prefs.registeredBLE) {
-                        //foundHeartRateMonitor = true;
-                        ble.connect(peripheral.id,
-                            $scope.heartRateOnConnect,
-                            $scope.heartRateOnDisconnect);
-                    } else {
-                        console.debug('Device ' + peripheral.id + ' not registered');
-                    }
-
-                }, function() {
-                    console.error('BluetoothLE scan failed');
-                }
-            );
-        }
+        Bluetooth.startBLEScan();
     };
 
     $scope.stopSession = function() {
@@ -685,7 +486,7 @@ angular.module('app.controllers', [])
         if (($scope.prefs.heartrateannounce === true) && ($scope.session.beatsPerMinute > 0)) {
             speechText += ', ' + $scope.session.beatsPerMinute + ' ' + $scope.translateFilter('_bpms') + ' ';
         }
- 
+
         $scope.speakText(speechText);
     };
 
@@ -706,23 +507,23 @@ angular.module('app.controllers', [])
                 $scope.session.accuracy = pos.coords.accuracy;
                 $scope.session.accuracy_fixed = pos.coords.accuracy.toFixed(0);
 
-                if ((pos.coords.accuracy <= $scope.prefs.minrecordingaccuracy) &&
+                if ((pos.coords.accuracy <= Prefs.get('minrecordingaccuracy')) &&
                     (timenew > $scope.session.recclicked) &&
                     ($scope.session.latold !== 'x') &&
                     ($scope.session.lonold !== 'x')) {
                     $scope.session.gpsGoodSignalToggle = true;
-                    if (($scope.prefs.gpslostannounce)) {
+                    if (Prefs.get('gpslostannounce')) {
                             //$scope.speakText($scope.translateFilter('_gps_got'));
                             $scope.gpslostlastannounce = timenew;
                     }
                 }
 
-                if ((pos.coords.accuracy >= $scope.prefs.minrecordingaccuracy) &&
+                if ((pos.coords.accuracy >= Prefs.get('minrecordingaccuracy')) &&
                     ($scope.session.gpsGoodSignalToggle === true) &&
                     (timenew > $scope.session.recclicked)) {
                     // In case we lost gps we should announce it
                     $scope.session.gpsGoodSignalToggle = false;
-                    if (($scope.prefs.gpslostannounce) && ((timenew - 30) > $scope.gpslostlastannounce)) {
+                    if (Prefs.get('gpslostannounce') && ((timenew - 30) > $scope.gpslostlastannounce)) {
                         $scope.speakText($scope.translateFilter('_gps_lost'));
                         $scope.gpslostlastannounce = timenew;
                     }
@@ -737,7 +538,7 @@ angular.module('app.controllers', [])
                     $scope.session.time = hour + ':' + minute + ':' + second;
                     $scope.session.elapsed = elapsed;
 
-                    if ((pos.coords.accuracy <= $scope.prefs.minrecordingaccuracy)) {
+                    if ((pos.coords.accuracy <= Prefs.get('minrecordingaccuracy'))) {
                         // Instant speed
                         if (pos.coords.speed) {
                             console.debug('GPS give us a speed');
@@ -746,10 +547,10 @@ angular.module('app.controllers', [])
                                 $scope.session.speeds.shift();
                             }
                             $scope.session.speed = average($scope.session.speeds,0);
-                            var currentPace = $scope.glbs.pace[$scope.prefs.unit] / $scope.session.speed;
+                            var currentPace = $scope.glbs.pace[Prefs.get('unit')] / $scope.session.speed;
                             //converts metres per second to minutes per mile or minutes per km
                             $scope.session.pace = Math.floor(currentPace) + ':' + ('0' + Math.floor(currentPace % 1 * 60)).slice(-2);
-                            $scope.session.speed = ($scope.session.speed * $scope.glbs.speed[$scope.prefs.unit]).toFixed(1);
+                            $scope.session.speed = ($scope.session.speed * $scope.glbs.speed[Prefs.get('unit')]).toFixed(1);
                             if ($scope.session.maxspeed < $scope.session.speed) {
                                 $scope.session.maxspeed = $scope.session.speed;
                             }
@@ -759,9 +560,10 @@ angular.module('app.controllers', [])
                         if ($scope.session.latold !== 'x' && $scope.session.lonold !== 'x') {
 
                             //Limit ok
-                            if (timenew - $scope.session.lastdisptime >= $scope.prefs.minrecordinggap) {
+                            if (timenew - $scope.session.lastdisptime >= Prefs.get('minrecordinggap')) {
+                                $scope.elapsed = timenew - $scope.session.firsttime;
                                 $scope.session.lastdisptime = timenew;
-
+                                
                                 //Distances
                                 var dLat;
                                 var dLon;
@@ -822,32 +624,32 @@ angular.module('app.controllers', [])
                                 $scope.session.timeold = timenew;
 
                                 //Alert and Vocal Announce
-                                if (parseInt($scope.prefs.distvocalinterval) > 0) {
+                                if (parseInt(Prefs.get('distvocalinterval')) > 0) {
                                     $scope.session.lastdistvocalannounce = 0;
-                                    if (($scope.session.equirect - $scope.session.lastdistvocalannounce) > $scope.prefs.distvocalinterval * 1000) {
+                                    if (($scope.session.equirect - $scope.session.lastdistvocalannounce) > Prefs.get('distvocalinterval') * 1000) {
                                         $scope.session.lastdistvocalannounce = $scope.session.equirect;
                                         $scope.runSpeak();
                                     }
                                 }
 
-                                if (parseInt($scope.prefs.timevocalinterval) > 0) {
-                                    if ((timenew - $scope.session.lasttimevocalannounce) > $scope.prefs.timevocalinterval * 60000) /*fixme*/ {
+                                if (parseInt(Prefs.get('timevocalinterval')) > 0) {
+                                    if ((timenew - $scope.session.lasttimevocalannounce) > Prefs.get('timevocalinterval') * 60000) /*fixme*/ {
                                         $scope.session.lasttimevocalannounce = timenew;
                                         $scope.runSpeak();
                                     }
                                 }
 
-                                if (parseInt($scope.prefs.timeslowvocalinterval) > 0) {
+                                if (parseInt(Prefs.get('timeslowvocalinterval')) > 0) {
                                     if (($scope.session.lastslowvocalannounce !== -1) &&
-                                        ((timenew - $scope.session.lastslowvocalannounce) > $scope.prefs.timeslowvocalinterval * 60000)) /*fixme*/ {
+                                        ((timenew - $scope.session.lastslowvocalannounce) > Prefs.get('timeslowvocalinterval') * 60000)) /*fixme*/ {
                                         $scope.session.lastslowvocalannounce = -1;
                                         $scope.session.lastfastvocalannounce = timenew;
                                         $scope.speakText($scope.translateFilter('_run_fast'));
                                     }
                                 }
-                                if (parseInt($scope.prefs.timefastvocalinterval) > 0) {
+                                if (parseInt(Prefs.get('timefastvocalinterval')) > 0) {
                                     if (($scope.session.lastfastvocalannounce !== -1) &&
-                                        ((timenew - $scope.session.lastfastvocalannounce) > $scope.prefs.timefastvocalinterval * 60000)) /*fixme*/ {
+                                        ((timenew - $scope.session.lastfastvocalannounce) > Prefs.get('timefastvocalinterval') * 60000)) /*fixme*/ {
                                         $scope.session.lastslowvocalannounce = timenew;
                                         $scope.session.lastfastvocalannounce = -1;
                                         $scope.speakText($scope.translateFilter('_run_slow'));
@@ -899,7 +701,7 @@ angular.module('app.controllers', [])
                     }
 
                     pointData.push(pos.coords.accuracy);
- 
+
                     if ($scope.session.instantCadence) {
                         pointData.push($scope.session.instantCadence);
                     } else {
@@ -965,10 +767,10 @@ angular.module('app.controllers', [])
         $scope.session.ddate = new Date().getDate();
         $scope.session.gpxData = [];
 
-        $scope.session.unit = $scope.prefs.unit;
+        /*$scope.session.unit = $scope.prefs.unit;
         $scope.session.speedlabel = $scope.glbs.speedlabel[$scope.prefs.unit];
         $scope.session.pacelabel = $scope.glbs.pacelabel[$scope.prefs.unit];
-        $scope.session.distancelabel = $scope.glbs.distancelabel[$scope.prefs.unit];
+        $scope.session.distancelabel = $scope.glbs.distancelabel[$scope.prefs.unit];*/
 
         $scope.session.lastrecordtime = 0;
         $scope.session.elapsed = 0;
@@ -999,7 +801,7 @@ angular.module('app.controllers', [])
         $scope.gps_lock = null;
         $scope.gpslostlastannounce = 0;
 
-        $scope.mustdelay = ($scope.prefs.useDelay === true);
+        $scope.mustdelay = (Prefs.get('useDelay') === true);
         $scope.delay = new Date().getTime();
         if ($scope.mustdelay === true) {
             $scope.mustdelaytime = new Date().getTime();
@@ -1021,7 +823,7 @@ angular.module('app.controllers', [])
                         maximumAge: 0,
                         timeout: 3000
                 });
- 
+
             };
 
 
@@ -1029,7 +831,7 @@ angular.module('app.controllers', [])
                   // after several times of interval log, this get called
                   console.log('backgroundMode.ondeactivate');
             };
-        
+
         } catch (exception) {
             console.debug('ERROR: cordova.plugins.backgroundMode not enabled');
         }
@@ -1049,7 +851,7 @@ angular.module('app.controllers', [])
         } catch (exception) {
             console.warn('ERROR: cordova powerManagement not enabled');
         }
-        if ($scope.prefs.keepscreenon === true) {
+        if (Prefs.get('keepscreenon') === true) {
             try {
                 window.plugins.insomnia.keepAwake();
             } catch (exception) {
@@ -1065,23 +867,19 @@ angular.module('app.controllers', [])
         }
 
 
-        if ($scope.prefs.debug) {
-            $scope.prefs.minrecordingaccuracy = 22;
-        } else {
-            $scope.prefs.minrecordingaccuracy = 22;
-        }
-        
+        Prefs.set('minrecordingaccuracy', 22);
+
         if ($scope.platform === 'firefoxos') {
             try {
                 $scope.gps_lock = window.navigator.requestWakeLock('gps');
-                if ($scope.prefs.keepscreenon === true) {
+                if (Prefs.get('keepscreenon') === true) {
                     $scope.screen_lock = window.navigator.requestWakeLock('screen');
                 }
             } catch (exception) {
                 console.debug('ERROR: Can\'t set background GPS or keep screen on setting for FirefoxOS:' + exception);
             }
         }
-        
+
         if ($scope.platform === 'android') {
             $scope.session.watchId = GPSLocation.watchPosition(
                 $scope.recordPosition,
@@ -1104,11 +902,11 @@ angular.module('app.controllers', [])
         $scope.runningTimeInterval = $interval(function() {
                 if ($scope.session.firsttime > 0) {
                 var elapsed = Date.now() - $scope.session.firsttime;
-                var hour = Math.floor(elapsed / 3600000);                   
+                var hour = Math.floor(elapsed / 3600000);
                 var minute = ('0' + (Math.floor(elapsed / 60000) - hour * 60)).slice(-2);
                 var second = ('0' + Math.floor(elapsed % 60000 / 1000)).slice(-2);
-                $scope.session.time = hour + ':' + minute + ':' + second;   
-                $scope.session.elapsed = elapsed; 
+                $scope.session.time = hour + ':' + minute + ':' + second;
+                $scope.session.elapsed = elapsed;
                 }
         }, 2000);
 
@@ -1134,7 +932,12 @@ angular.module('app.controllers', [])
     $scope.saveSession = function() {
         Sessions.appendOrWrite(Session.session)
             .then($scope.updateSessionsList)
-            .then(Resume.compute);
+            .then($scope.updateResume);
+    };
+
+    $scope.updateResume = function() {
+        Resume.compute();
+        $scope.resume = Resume.getResume();
     };
 
     $scope.computeEquipmentsDatas = function() {
@@ -1153,10 +956,10 @@ angular.module('app.controllers', [])
             timeout: 60000,
             maximumAge: 0
         });
-       
+
         if (Prefs.get('first_run') === true) {
             Prefs.set('first_run', false);
-            $state.go('app.help');        
+            $state.go('app.help');
         }
     }, 5000);
 
@@ -1167,11 +970,11 @@ angular.module('app.controllers', [])
 
 })
 
-.controller('EquipmentsCtrl', function($scope, $ionicPopup, Equipments) {
+.controller('EquipmentsCtrl', function($scope, $ionicPopup, Equipments, Sessions) {
     'use strict';
     if (!$scope.equipments) {
         Equipments.load().then(function() {
-            Equipments.compute();
+            Equipments.compute(Sessions.getSessions());
             $scope.equipments = Equipments.getEquipments();});
     }
 
@@ -1189,7 +992,7 @@ angular.module('app.controllers', [])
            'uuid': $scope.fakeGuid(),
            'name':'Untitled Shoes',
            'distance':0,
-           'photo':'img/defaultshoes.png' 
+           'photo':'img/defaultshoes.png'
         }).then(function() {
             $scope.equipments = Equipments.getEquipments();
         });
@@ -1269,7 +1072,7 @@ angular.module('app.controllers', [])
                 console.log('failed can t open fs');
             });
 
-        
+
         return stordir+'images/'+uuid+'.jpg';
     };
 
@@ -1291,58 +1094,12 @@ angular.module('app.controllers', [])
           $ionicPopup.alert({
                title: $scope.translateFilter('_camera_picture_error_title'),
                 template: $scope.translateFilter('_camera_not_available')});
- 
+
         }
     };
 
-    Equipments.compute();
+    Equipments.compute(Sessions.getSessions());
 })
-
-/*.controller('EquipmentCtrl', function($scope, $stateParams, $ionicPopup, $ionicHistory) {
-    'use strict';
-    $scope.deleteEquipment = function(idx) {
-        // confirm dialog
-        var confirmPopup = $ionicPopup.confirm({
-            title: $scope.translateFilter('_delete'),
-            template: $scope.translateFilter('_confirm_delete')
-        });
-        confirmPopup.then(function(res) {
-            if (res) {
-                $scope.equipments.splice(idx, 1);
-                $scope.writeEquipmentsToFile($scope.equipments);
-                if ($scope.platform === 'Browser') {
-                    $scope.storageSetObj('equipments', $scope.equipments); }
-                //Back
-                var view = $ionicHistory.backView();
-                if (view) {
-                    view.go();
-                }
-            } else {
-                console.error('Error confirm delete equipment');
-            }
-        });
-    };
-
-    $scope.saveEquipmentModifications = function() {
-        $scope.equipments[$stateParams.equipmentId] = $scope.equipment;
-        $scope.writeEquipmentsToFile($scope.equipments);
-        if ($scope.platform === 'Browser') {
-            $scope.storageSetObj('equipments', $scope.equipments);}
-        $scope.storageSetObj('version', $scope._version);
-    };
-
-    $scope.deleteEquipmentByID = function(sid) {
-        $scope.equipments.map(function(value, indx) {
-            if (value.recclicked === sid) {
-                $scope.deleteEquipment(indx);
-            }
-        });
-    };
-
-    $scope.equipment = $scope.equipments[$stateParams.equipmentId];
-
-})*/
-
 
 .controller('RecordsCtrl', function($scope, Sessions) {
     'use strict';
@@ -1350,7 +1107,7 @@ angular.module('app.controllers', [])
         $scope.records = {};
         var sessions = Sessions.getSessions();
         $scope.total_kms = 0;
-        
+
         if (sessions) {
             for (var idx = 0; idx < sessions.length; idx++) {
                 var session = sessions[idx];
@@ -1408,9 +1165,9 @@ angular.module('app.controllers', [])
 
 })
 
-.controller('SessionCtrl', function($scope, $stateParams, $ionicPopup, $ionicHistory, $timeout, $ionicScrollDelegate, Sessions, Session, Resume, Prefs, Equipments) {
+.controller('SessionCtrl', function($scope, $stateParams, $ionicPopup, $ionicHistory, $timeout, $ionicScrollDelegate, Sessions, Session, Resume, Prefs) {
     'use strict';
-    $scope.deleteSession = function(idx) {
+    $scope.deleteSession = function(session_id) {
         // confirm dialog
         var confirmPopup = $ionicPopup.confirm({
             title: $scope.translateFilter('_delete'),
@@ -1418,11 +1175,10 @@ angular.module('app.controllers', [])
         });
         confirmPopup.then(function(res) {
             if (res) {
-                Sessions.sessions.splice(idx, 1);
-                Sessions.save()
+                Sessions.deleteByID(session_id)
                     .then($scope.updateSessions)
                     .then(Resume.compute);
-                
+
                 //Back
                 var view = $ionicHistory.backView();
                 if (view) {
@@ -1438,13 +1194,13 @@ angular.module('app.controllers', [])
         Sessions.appendOrWrite($scope.session);
     };
 
-    $scope.deleteSessionByID = function(sid) {
+    /*$scope.deleteSessionByID = function(sid) {
         Sessions.sessions.map(function(value, indx) {
             if (value.recclicked === sid) {
                 $scope.deleteSession(indx);
             }
         });
-    };
+    };*/
 
 
     $scope.addEquipment = function(newEq) {
@@ -1460,7 +1216,7 @@ angular.module('app.controllers', [])
         confirmPopup.then(function(res) {
             if (res) {
                 $scope.session.equipments.splice(idx,1);
-                $scope.saveSessionModifications();   
+                $scope.saveSessionModifications();
             } else {
                 console.error('Error confirm delete equipment');
             }
@@ -1475,7 +1231,7 @@ angular.module('app.controllers', [])
             'ForRunners',
             document.getElementById('speedvsalt').toDataURL(),
             'http://khertan.net/#forrunners',
-            function(){ 
+            function(){
                 //success callback
             },
             function(err){
@@ -1489,29 +1245,15 @@ angular.module('app.controllers', [])
     $scope.session = Sessions.getAt($stateParams.sessionId);
     Session.initWith(Sessions.getAt($stateParams.sessionId));
 
-    if (!$scope.equipments) {
-        Equipments.load()
-            .then(function() {$scope.equipments = Equipments.getEquipments(); })
-            .then(function() {
-                //If session has no equipments push defaults in
-                if ((!$scope.session.equipments) && ($scope.equipments)) {
-                    $scope.session.equipments = $scope.equipments.map(function(eq){
-                        if (eq.isDefault) {
-                            return eq;}
-                    });
-                }
-            });
-    }
-
     // Horrible hack to workarround a resize issue with chart.js and ng
     angular.element(document).ready(function () {
        $timeout(function() {
-            $ionicScrollDelegate.resize();   
-       }, 100);  
+            $ionicScrollDelegate.resize();
+       }, 100);
     });
-    
+
     // Check if session need to be computed
-    if ((($scope.session.fixedElevation === undefined) && (Prefs.get('usegoogleelevationapi') === true)) || 
+    if ((($scope.session.fixedElevation === undefined) && (Prefs.get('usegoogleelevationapi') === true)) ||
              ($scope.session.overnote === undefined) ||
              ($scope.session.gpxPoints === undefined) ||
              (Prefs.get('debug') === true) ||
@@ -1520,9 +1262,9 @@ angular.module('app.controllers', [])
              ($scope.session.map.bounds === undefined) ||
              ($scope.session.map.markers === undefined)||
              ($scope.session.version !== $scope._version)) {
-        
-            Session.compute().then(function(session) {
-                $scope.session = session;   
+
+            Session.compute($scope.session).then(function(session) {
+                $scope.session = session;
                 Sessions.appendOrWrite(session).then(function() {
                     $scope.sessions = Sessions.getSessions();
                     $scope.updateSessionsList();
@@ -1552,7 +1294,7 @@ angular.module('app.controllers', [])
                     result.file(function(gotFile) {
                         $scope.importGPX(gotFile);
                     }, function(err) {console.error(err);});
-                        
+
                 } else {
                     $scope.files = result;
                     $scope.files.unshift({name: '[parent]'});
@@ -1575,14 +1317,14 @@ angular.module('app.controllers', [])
         //AppRate.preferences.promptAgainForEachNewVersion = false;
         //AppRate.promptForRating();
     //};
-    
+
     //if (Sessions.sessions.length > 5) {
     //    $scope.promptForRating();
     //
     //}
     //
     $scope.prefs = Prefs.getPrefs();
-}) 
+})
 
 .controller('HelpCtrl', function($scope, $state, $ionicScrollDelegate) {
     'use strict';
@@ -1606,9 +1348,9 @@ angular.module('app.controllers', [])
         if (($scope.help_cur >= 1) || ($scope.help_cur <= 6)){
             $scope.help_path = 'img/help_'+$scope.help_cur+'.svg';
             $scope.help_subtitle = $scope.translateFilter('_help_subtitle_'+$scope.help_cur);
-            $scope.help_desc = $scope.translateFilter('_help_desc_'+$scope.help_cur); 
+            $scope.help_desc = $scope.translateFilter('_help_desc_'+$scope.help_cur);
         } else if ($scope.help_cur === 7) {
-            $state.go('app.sessions');            
+            $state.go('app.sessions');
         }
     };
     $scope.go();

@@ -26,7 +26,7 @@ angular.module('app.services', [])
                     fileSystem.getDirectory(name,
                         {create: true, exclusive: false},
                         function(result) {
-                            deferred.resolve(result); 
+                            deferred.resolve(result);
                         }, function(error) {
                             deferred.resolve(error);
                         });
@@ -35,7 +35,7 @@ angular.module('app.services', [])
                 });
             } catch(error) {
                 deferred.reject(error);
-            };
+            }
             return deferred.promise;
        },
 
@@ -65,8 +65,7 @@ angular.module('app.services', [])
             }, function(error) {
                 deferred.reject(error);
             });
-            return deferred.promise;
-       },
+        },
 
        getEntries: function(path) {
             var deferred = $q.defer();
@@ -180,7 +179,7 @@ angular.module('app.services', [])
             return deferred.promise;
         },
 
-           
+
         dateTimeReviver: function(key, value) {
             if ((key === 'duration') || (key === 'pace')) {
                 if (typeof value === 'string') {
@@ -201,14 +200,14 @@ angular.module('app.services', [])
                     fileEntry.file(function(file) {
                         var reader = new FileReader();
                         reader.onloadend = function() {
-                            deferred.resolve(JSON.parse(this.result, 
+                            deferred.resolve(JSON.parse(this.result,
                                                         this.dateTimeReviver));
                         }; reader.readAsText(file);
                     });
                 }, function(err){deferred.reject(err);});
 
             } else {
-        
+
                 // NO FILE API, FALLBACK ON LocalStorage
                 console.warn('No file api, fallback to LocalStorage for ' + name);
                 try {
@@ -223,7 +222,6 @@ angular.module('app.services', [])
     };
 
     return File;
-
 })
 
 
@@ -286,7 +284,7 @@ angular.module('app.services', [])
 
 
     this.save = function(){
-        localStorage.setItem('prefs', JSON.stringify(prefs));   
+        localStorage.setItem('prefs', JSON.stringify(prefs));
     };
 
     this.load = function(){
@@ -296,7 +294,7 @@ angular.module('app.services', [])
             for (var prop in sprefs) {
                 prefs[prop] = sprefs[prop];
             }
-    
+
         } catch(err) {
             console.log(err);
         }
@@ -314,20 +312,395 @@ angular.module('app.services', [])
     return this;
 }])
 
+.factory('Speech', ['Prefs', function(Prefs) {
+    'use strict';
 
+    var self = this;
+    var utterance;
+
+    this.speak = function(text){
+      try {
+        if (!utterance) {
+          utterance = new SpeechSynthesisUtterance();
+          utterance.volume = 1;
+          utterance.lang = Prefs.get('language');
+        }
+        utterance.text = text;
+
+        if (Prefs.get('togglemusic')) {
+          utterance.onend = function(event) {
+              musicControl.togglepause(function(err, cb) {
+                  if (err) {
+                      console.error(err, event, cb);
+                  }
+                  return;
+              });
+          };
+          musicControl.togglepause(function(err, cb) {
+              if (err) {
+                  console.error(err, event, cb);
+              }
+              speechSynthesis.speak(self.utterance);
+              return;
+          });
+        } else {
+          utterance.onend = function() {};
+          speechSynthesis.speak(utterance);
+        }
+      } catch(err) {
+        console.warn('speechSynthesis probably not available:' + err);
+      }
+    };
+
+    return this;
+
+}])
+
+.factory('Bluetooth', ['$q', 'Prefs', function($q, Prefs) {
+    'use strict';
+    
+    var self = this;
+    var bluetooth_scanning = false;
+    var connected = false;
+    var ble_services = {
+        heartRate: {
+            service: '180d',
+            measurement: '2a37'
+        },
+        cadence: {
+            service: '1814',
+            measurement: '2a53'
+        },
+        power: {
+            service: '1818',
+            measurement: '2a63'
+        }
+    };
+
+    this.startBLEScan = function() {
+        var registered_devices = Prefs.get('registeredBLE');
+        // https://developer.bluetooth.org/gatt/services/Pages/ServiceViewer.aspx?u=org.bluetooth.service.heart_rate.xml
+        if ((Object.keys(registered_devices.length > 0) && (!connected))) {
+            ble.scan([ble_services.heartRate.service], 5,
+                //onScan
+                function(peripheral) {
+                    console.debug('Found ' + JSON.stringify(peripheral));
+                    if (peripheral.id in registered_devices) {
+                        ble.connect(peripheral.id,
+                            self.onConnect,
+                            self.onDisconnect);
+                    } else {
+                        console.debug('Device ' + peripheral.id + ' not registered');
+                    }
+
+                }, function() {
+                    console.error('BluetoothLE scan failed');
+                }
+            );
+        }
+    };
+
+    this.setDataCallback = function(onHeartRateDatas, onHeartRateError,
+                                    onPowerDatas, onPowerError,
+                                    onCadenceDatas, onCadenceError,
+                                    onStrideDatas, onStrideError) {
+        self.onHeartRateDatas = onHeartRateDatas;
+        self.onPowerDatas = onPowerDatas;
+        self.onCadenceDatas = onCadenceDatas;
+        self.onStrideDatas = onStrideDatas;
+
+        self.onHeartRateError = onHeartRateError;
+        self.onPowerError = onPowerError;
+        self.onCadenceError = onCadenceError;
+        self.onStrideError = onStrideError;
+    };
+
+    this.onDisconnect= function() {
+        self.onHeartRateError();
+        self.onCadenceError();
+        self.onPowerError();
+        self.onStrideError();
+    };
+
+    this.onConnect= function(peripheral) {
+        //HEARTRATE
+        ble.notify(peripheral.id,
+            ble_services.heartRate.service,
+            ble_services.heartRate.measurement,
+            function(buffer) {
+                var data = new DataView(buffer);
+                if (data.getUint8(0) === 0x1000) { 
+                    self.onHeartRateDatas(data.getUint16(1)); }
+                else {
+                    self.onHeartRateDatas(data.getUint8(1));}
+            },
+            self.onHeartRateError);
+
+        //CADENCE
+        ble.notify(peripheral.id,
+            ble_services.cadence.service,
+            ble_services.cadence.measurement,
+            function(buffer) {
+                var data = new DataView(buffer);
+                self.onCadenceDatas(data.getUint8(1));
+                if (data.getUint8(0) === 0x1000) {
+                    self.onStrideDatas(data.getUint16(4));
+                } else {
+                    self.onStrideDatas(undefined);
+                }
+            },
+            self.onCadenceError);
+
+        //POWER
+        ble.notify(peripheral.id,
+            ble_services.power.service,
+            ble_services.power.measurement,
+            function(buffer) {
+                var data = new DataView(buffer);
+                self.onPowerDatas(data.getInt16(2, true));
+            },
+            self.onPowerError);
+    };
+
+    this.discoverDevices = function() {
+        var deferred = $q.defer();
+        var bluetooth_devices = {};
+        var registered_bluetooth = Prefs.get('registeredBLE');
+
+        for (var prop in registered_bluetooth) {
+            bluetooth_devices[prop] = {
+                'id': prop,
+                'name': registered_bluetooth[prop].name,
+                'registered': true
+            };
+        }
+        bluetooth_scanning = true;
+
+        try {
+            ble.startScan([], function(bledevice) {
+                if (!(bledevice.id in bluetooth_devices)) {
+                    if (bledevice.id in registered_bluetooth) {
+                        bluetooth_devices[bledevice.id] = {
+                            'id': bledevice.id,
+                            'name': bledevice.name ? bledevice.name : 'Unknow',
+                            'registered': true
+                        };
+
+                    } else {
+                        bluetooth_devices[bledevice.id] = {
+                            'id': bledevice.id,
+                            'name': bledevice.name ? bledevice.name : 'Unknow',
+                            'registered': false
+                        };
+                    }
+                }
+            }, function(err) {
+                bluetooth_scanning = false;
+                deferred.reject(err);
+           });
+
+            setTimeout(function() {
+                ble.stopScan(
+                    function() {
+                        bluetooth_scanning = false;
+                        deferred.resolve(bluetooth_devices);
+                    },
+                    function() {
+                        bluetooth_scanning = false;
+                        deferred.resolve(bluetooth_devices);
+                    }
+                );
+            }, 5000);
+        } catch (exception) {
+            bluetooth_scanning = false;
+            console.info('BluetoothLE not available');
+            deferred.reject(exception);
+       }
+ 
+        return deferred.promise;
+    };
+
+    return this;
+}])
 
 // Service to store sessions
-.factory('Session', ['Prefs','leafletBoundsHelpers', '$filter', '$q', '$http', 'FileFactory', function(Prefs, leafletBoundsHelpers, $filter, $q, $http, FileFactory) {
+.factory('Session', ['Prefs','leafletBoundsHelpers', '$filter', '$q', '$http', 'FileFactory', 'Speech', function(Prefs, leafletBoundsHelpers, $filter, $q, $http, FileFactory, Speech) {
     'use strict';
     var session = {};
     var self = this;
+    var recording = {};
 
     this.initWith = function(sess) {
         session = sess;
     };
 
+    this.recordPosition = function(position) {
+      recording.new_lat = position.coords.latitude;
+      recording.new_lon = position.coords.longitude;
+      recording.new_time = position.timestamp;
+      recording.new_newalt = undefined;
+      recording.elapsed = 0;
+      recording.gps_speed = undefined;
+
+      if (typeof position.coords.altitude === 'number') {
+          recording.new_alt = position.coords.altitude;
+      }
+      if (typeof position.coords.speed === 'number') {
+          recording.gps_speed = position.coords.speed;
+      }
+
+      recording.new_accuracy = position.coords.accuracy;
+      recording.accuracy_fixed = recording.new_accuracy.toFixed(0);
+
+      //Test recovering of gps signal
+      if ((recording.new_accuracy <= Prefs.get('minrecordingaccuracy') &&
+          (recording.new_time > recording.recclicked) &&
+          (recording.old_lat) &&
+          (recording.old_pos))) {
+            recording.gps_signal_status = true;
+            if (Prefs.get('gpslostannounce')) {
+              recording.gps_signal_time = recording.new_time;
+          }
+      }
+
+      //Test lost of gps signal
+      if ((recording.new_accuracy >= Prefs.get('minrecordingaccuracy')) &&
+          (recording.gps_signal_status === true) &&
+          (recording.new_time > recording.recclicked)) {
+          // In case we lost gps we should announce it
+          recording.gps_signal_status = false;
+          if (Prefs.get('gpslostannounce') && ((recording.new_time - 30) > recording.gps_signal_time)) {
+              Speech.speak($filter('translate')('_gps_lost'));
+              recording.gps_signal_time = recording.new_time;
+          }
+      }
+
+      if ((recording.new_time - recording.lastrecordtime >= Prefs.get('minrecordinggap')) &&
+          (recording.new_accuracy <= Prefs.get('minrecordingaccuracy'))) {
+          //console.log('Should record');
+          var pointData = [
+              recording.new_lat.toFixed(6),
+              recording.new_lon.toFixed(6),
+              new Date(recording.new_time).toISOString(),
+              recording.new_alt.toFixed(6),
+              recording.bpms.toFixed(0),
+              recording.cadence.toFixed(0),
+              recording.power.toFixed(0),
+              recording.strike.toFixed(2)
+          ];
+          recording.gpxData.push(pointData);
+          recording.lastrecordtime = recording.new_time;
+      }
+
+      if (recording.firsttime === 0) {
+        recording.firsttime = recording.new_time;
+        recording.lastdisptime = recording.new_time;
+        recording.lastdistvocalannounce = 0;
+        recording.lasttimevocalannounce = recording.new_time;
+        recording.lastslowvocalannounce = recording.new_time;
+        recording.lastfastvocalannounce = -1;
+        recording.old_lat = recording.new_lat;
+        recording.old_lon = recording.new_lon;
+
+        recording.time = '00:00:00';
+        recording.distance = '0';
+        recording.maxspeed = '0';
+        recording.speed = '0';
+        recording.avspeed = '0';
+        recording.elapsed = 0;
+        recording.minalt = 99999;
+        recording.maxalt = 0;
+        recording.elevation = '0';
+        recording.smoothed_speed = [];
+        recording.bpms = undefined;
+        recording.cadence = undefined;
+        recording.power = undefined;
+        recording.strike= undefined;
+      } else {
+        recording.elapsed = recording.time_new - recording.firsttime;
+        var hour = Math.floor(recording.elapsed / 3600000);
+        var minute = ('0' + (Math.floor(recording.elapsed / 60000) - hour * 60)).slice(-2);
+        var second = ('0' + Math.floor(recording.elapsed % 60000 / 1000)).slice(-2);
+        recording.time = hour + ':' + minute + ':' + second;
+
+        if ((recording.accuracy <= Prefs.get('minrecordingaccuracy'))) {
+            // Instant speed
+            if ((recording.gps_speed) && (recording.gps_speed>0)){
+                recording.speeds.push(recording.gps_speed);
+                if (recording.speeds.length > 5) {
+                    recording.speeds.shift();
+                }
+                recording.speed = average(recording.speeds,0);
+                var currentPace = 16.6667 / recording.speed;
+                //converts metres per second to minutes per mile or minutes per km
+                recording.pace = Math.floor(currentPace) + ':' + ('0' + Math.floor(currentPace % 1 * 60)).slice(-2);
+                recording.speed = (recording.speed * 3.6).toFixed(1);
+            }
+
+            // Not first point
+            if (recording.old_lat && recording.old_lon) {
+                //Limit ok
+                if ((recording.new_time - recording.lastdisptime) >= Prefs.get('minrecordinggap')) {
+                    recording.elapsed = recording.new_time - recording.firsttime;
+                    recording.lastdisptime = recording.new_time;
+
+                    //calc total distance
+                    recording.gpxPoints = simplifyGPX(self.computeKalmanLatLng(recording.gpxData), 0.00001);
+                    recording.equirect = 0;
+
+                    recording.equirect = self.calcDistance(recording.gpxPoints);
+                    recording.distance = recording.equirect.toFixed(1);
+
+                    //calc average pace & average speed
+                    var averagePace = recording.elapsed / (recording.equirect * 60000);
+                    recording.avpace = Math.floor(averagePace) + ':' + ('0' + Math.floor(averagePace % 1 * 60)).slice(-2);
+                    recording.avspeed = (recording.equirect / recording.elapsed * 3.6).toFixed(1);
+
+                    recording.old_lat = recording.new_lat;
+                    recording.old_lon = recording.new_lon;
+                    recording.old_alt = recording.new_alt;
+                    recording.old_time = recording.new_time;
+
+                    //Alert and Vocal Announce
+                    if (parseInt(Prefs.get('distvocalinterval')) > 0) {
+                        recording.lastdistvocalannounce = 0;
+                        if ((recording.equirect - recording.lastdistvocalannounce) > Prefs.get('distvocalinterval') * 1000) {
+                            recording.lastdistvocalannounce = recording.equirect;
+                            self.runSpeak();
+                        }
+                    }
+
+                    if (parseInt(Prefs.get('timevocalinterval')) > 0) {
+                        if ((recording.new_time - recording.lasttimevocalannounce) > Prefs.get('timevocalinterval') * 60000) /*fixme*/ {
+                            recording.lasttimevocalannounce = recording.new_time;
+                            self.runSpeak();
+                        }
+                    }
+
+                    if (parseInt(Prefs.get('timeslowvocalinterval')) > 0) {
+                        if ((recording.lastslowvocalannounce !== -1) &&
+                            ((recording.new_time - recording.lastslowvocalannounce) > Prefs.get('timeslowvocalinterval') * 60000)) /*fixme*/ {
+                            recording.lastslowvocalannounce = -1;
+                            recording.lastfastvocalannounce = recording.new_time;
+                            Speech.speak($filter('translate')('_run_fast'));
+                        }
+                    }
+                    if (parseInt(Prefs.get('timefastvocalinterval')) > 0) {
+                        if ((recording.lastfastvocalannounce !== -1) &&
+                            ((recording.time_new - recording.lastfastvocalannounce) > Prefs.get('timefastvocalinterval') * 60000)) /*fixme*/ {
+                            recording.lastslowvocalannounce = recording.new_time;
+                            recording.lastfastvocalannounce = -1;
+                            Speech.speak($filter('translate')('_run_slow'));
+                        }
+                    }
+                }
+            }
+        }
+      }
+    };
+
     this.computeKalmanLatLng = function(datas) {
-        var Q_metres_per_second = 3;    
+        var Q_metres_per_second = 3;
         var TimeStamp_milliseconds;
         var tinc;
         var lat;
@@ -375,14 +748,14 @@ angular.module('app.services', [])
                      accuracy: parseFloatOr(item[5]),
                      cadence: parseFloatOr(item[6]),
                      power: parseFloatOr(item[7]),
-                     stryde: parseFloatOr(item[8]) };
+                     strike: parseFloatOr(item[8]) };
         });
 
     };
 
     this.fixElevation = function(gpxPoints) {
         var deferred = $q.defer();
- 
+
         if (!Prefs.get('usegoogleelevationapi')) {
             deferred.reject('Dont use google elevation api');
             return deferred.promise;
@@ -397,16 +770,16 @@ angular.module('app.services', [])
             gpx_paths.push(gpx_path.slice(i,i+chunk));
         }
         var encpaths = gpx_paths.map(function(path){
-            return L.polyline(path).encodePath(); 
+            return L.polyline(path).encodePath();
         });
-        
+
         encpaths.map(function(encpath, encidx){
             $http({url:'https://maps.googleapis.com/maps/api/elevation/json?key=AIzaSyCIxn6gS4TePkbl7Pdu49JHoMR6POMafdg&locations=enc:' + encpath ,
                 method:'GET',
                 }).then(function(response) {
                    if (response.data.status === 'OK') {
                         for (var idx = 0; idx < response.data.results.length; idx++) {
-                            gpxPoints[encidx*100 + idx].ele = response.data.results[idx].elevation;                        
+                            gpxPoints[encidx*100 + idx].ele = response.data.results[idx].elevation;
                         }
                         if (encidx === (encpaths.length -1)) {
                             session.fixedElevation = true;
@@ -421,14 +794,44 @@ angular.module('app.services', [])
         });
 
         // Return a promise.
-        return deferred.promise; 
+        return deferred.promise;
     };
 
-    this.compute = function() {
+    this.calcDistance = function(gpxPoints) {
+      var oldLat = gpxPoints[0].lat;
+      var oldLng = gpxPoints[0].lng;
+      var dLat;
+      var dLon;
+      var dLat1;
+      var dLat2;
+      var curLat;
+      var curLng;
+      var distance = 0;
+      var a;var c;
+
+      for (var p = 0; p < gpxPoints.length; p++) {
+          curLat = gpxPoints[p].lat;
+          curLng = gpxPoints[p].lng;
+          //Distances
+          dLat = (curLat - oldLat) * Math.PI / 180;
+          dLon = (curLng - oldLng) * Math.PI / 180;
+          dLat1 = (oldLat) * Math.PI / 180;
+          dLat2 = (curLat) * Math.PI / 180;
+          a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+              Math.cos(dLat1) * Math.cos(dLat1) *
+              Math.sin(dLon / 2) * Math.sin(dLon / 2);
+          c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+          distance += 6371 * c;
+          oldLng = gpxPoints[p].lng;
+          oldLat = gpxPoints[p].lat;
+      }
+    };
+
+    this.compute = function(session) {
         var deferred = $q.defer();
         var gpxPoints = [];
         gpxPoints = simplifyGPX(self.computeKalmanLatLng(session.gpxData), 0.00001);
- 
+
         self.fixElevation(gpxPoints)
             .then(function(newGpxPoints) {gpxPoints = newGpxPoints;})
             .finally(function() {
@@ -477,7 +880,7 @@ angular.module('app.services', [])
             var curAcc = gpxPoints[0].accuracy;
             var curCadence = gpxPoints[0].cadence;
             var curPower = gpxPoints[0].power;
-            var curStryde = gpxPoints[0].stryde;
+            var curstrike = gpxPoints[0].strike;
 
             var oldLat = curLat;
             var oldLng = curLng;
@@ -501,8 +904,8 @@ angular.module('app.services', [])
             var cadenceTmp2 = [];
             var powerTmp = [];
             var powerTmp2 = [];
-            var strydeTmp = [];
-            var strydeTmp2 = [];
+            var strikeTmp = [];
+            var strikeTmp2 = [];
             var dTemp2 = 0;
             var smallStepDetail = [];
             var timeStartTmp2 = new Date(gpxPoints[0].timestamp);
@@ -565,7 +968,7 @@ angular.module('app.services', [])
                 curAcc = gpxPoints[p].accuracy;
                 curCadence = gpxPoints[p].cadence;
                 curPower = gpxPoints[p].power;
-                curStryde = gpxPoints[p].stryde;
+                curstrike = gpxPoints[p].strike;
                 //Distances
                 dLat = (curLat - oldLat) * Math.PI / 180;
                 dLon = (curLng - oldLng) * Math.PI / 180;
@@ -579,7 +982,6 @@ angular.module('app.services', [])
                 //Speed between this and previous point
                 dtd = new Date(curDate) - new Date(oldDate);
                 dspeed = (Math.round((d) * 100) / 100) / (dtd / 1000 / 60 / 60);
-                console.log(d);
                 if (d < 0.0001) {
                     console.log('stop point');
                 } else {
@@ -657,12 +1059,12 @@ angular.module('app.services', [])
                             cadenceTmp.push(curCadence);
                             cadenceTmp2.push(curCadence);
                         }
-                        
-                        if (curStryde) {
-                            strydeTmp.push(curStryde);
-                            strydeTmp2.push(curStryde);
+
+                        if (curstrike) {
+                            strikeTmp.push(curstrike);
+                            strikeTmp2.push(curstrike);
                         }
-                        
+
                         dTemp += (d * 1000);
                         if (((dTotal - (mz - 1)) * 1000) >= dMaxTemp) {
                             markers[mz] = {
@@ -691,7 +1093,7 @@ angular.module('app.services', [])
                                 hr: average(heartRatesTmp, 0),
                                 cadence: average(cadenceTmp, 0),
                                 power: average(powerTmp, 0),
-                                stryde: average(strydeTmp,1)
+                                strike: average(strikeTmp,1)
                             });
                             timeStartTmp = new Date(gpxPoints[p].timestamp);
                             mz++;
@@ -718,7 +1120,7 @@ angular.module('app.services', [])
                                 hr: average(heartRatesTmp2, 0),
                                 cadence: average(cadenceTmp2, 0),
                                 power: average(powerTmp2, 0),
-                                stryde: average(strydeTmp2, 1)
+                                strike: average(strikeTmp2, 1)
                             });
                             timeStartTmp2 = new Date(gpxPoints[p].timestamp);
                             mz2++;
@@ -757,7 +1159,7 @@ angular.module('app.services', [])
                                 hr: average(heartRatesTmp2, 0),
                                 cadence: average(cadenceTmp2, 0),
                                 power: average(powerTmp2, 0),
-                                stryde: average(strydeTmp2, 0)
+                                strike: average(strikeTmp2, 0)
                             });
                         }
                     }
@@ -943,7 +1345,7 @@ angular.module('app.services', [])
                 legendTemplate: '<ul class=\"<%=name.toLowerCase()%>-legend\"><% for (var i=0; i<segments.length; i++){%><li><span style=\"background-color:<%=segments[i].fillColor%>\"></span><%if(segments[i].label){%><%=segments[i].label%><%}%></li><%}%></ul>',
                 averageValue: session.avg_hr
             };
-            
+
             eleUp = 0; //parseFloat(elePoints[0][3]);
             eleDown = 0; //parseFloat(elePoints[0][3]);
             for (p = 0; p < gpxPoints.length; p++) {
@@ -1007,7 +1409,7 @@ angular.module('app.services', [])
             session.distance = Math.round(dTotal * 100) / 100;
             session.pace = gpxpace;
             session.speed = gpxspeed;
-            session.speedinmvt = gpxspeedwithoutpause; 
+            session.speedinmvt = gpxspeedwithoutpause;
             session.paceinmvt = gpxpacewithoutpause;
             session.eleUp = Math.round(eleUp);
             session.eleDown = Math.round(eleDown);
@@ -1018,9 +1420,9 @@ angular.module('app.services', [])
             session.start = gpxPoints[0].timestamp;
             session.end = gpxPoints[gpxPoints.length - 1].timestamp;
 
-            session.overnote = (parseInt(gpxspeed) * 1000 * (miliseconds / 1000 / 60) * 0.000006 + ((Math.round(eleUp) - Math.round(eleDown)) * 0.02)).toFixed(1); 
-        
-            deferred.resolve(session);    
+            session.overnote = (parseInt(gpxspeed) * 1000 * (miliseconds / 1000 / 60) * 0.000006 + ((Math.round(eleUp) - Math.round(eleDown)) * 0.02)).toFixed(1);
+
+            deferred.resolve(session);
         });
 
         // Return a promise.
@@ -1065,16 +1467,16 @@ angular.module('app.services', [])
                     gpxPoints += '<gpxtpx:power>' + pts[7] + '</gpxtpx:power>\n';
                 }
                 if (pts[8]) {
-                    gpxPoints += '<gpxtpx:stryde>' + pts[8] + '</gpxtpx:stryde>\n';
+                    gpxPoints += '<gpxtpx:strike>' + pts[8] + '</gpxtpx:strike>\n';
                 }
                 gpxPoints +=  '</gpxtpx:TrackPointExtension></extensions>';
             }
             gpxPoints += '</trkpt>\n';
         });
-        
+
         var sf = new FileFactory();
         sf.createFolder('GPXs');
-        return sf.writeJSON(sf.getDefaultPath() + 'GPXs/', filename, gpxHead + gpxSubHead + gpxPoints + gpxFoot);    
+        return sf.writeJSON(sf.getDefaultPath() + 'GPXs/', filename, gpxHead + gpxSubHead + gpxPoints + gpxFoot);
     };
 
     this.parseFromGPX = function() {
@@ -1091,11 +1493,12 @@ angular.module('app.services', [])
 // Service to store resumegraph
 .factory('Resume', ['FileFactory', 'Sessions', '$filter', function(FileFactory, Sessions, $filter) {
     'use strict';
+    var self = this;
     var resume = {};
 
     this.save = function() {
         var sf = new FileFactory();
-        sf.writeJSON(sf.getDefaultPath(), 'resume', resume);     
+        sf.writeJSON(sf.getDefaultPath(), 'resume', resume);
     };
 
     this.getResume = function() {
@@ -1105,7 +1508,10 @@ angular.module('app.services', [])
     this.load = function() {
         var sf = new FileFactory();
         return sf.readJSON(sf.getDefaultPath(), 'resume').then(function(obj){
-            resume = obj;
+            if (obj) {
+                resume = obj; }
+            else {
+                self.compute(); }
         });
     };
 
@@ -1128,7 +1534,7 @@ angular.module('app.services', [])
         };
 
         resume.overnote = 0;
- 
+
         resume.elapsed = 0;
         resume.equirect = 0;
         resume.avspeed = 0;
@@ -1175,37 +1581,41 @@ angular.module('app.services', [])
         resume.avspeed = (resume.avspeed / Sessions.getSessions().length).toFixed(1);
         resume.avduration = new Date(resume.elapsed / Sessions.getSessions().length);
         resume.overnote = Math.round((resume.overnote / Sessions.getSessions().length), 1);
- 
+
         resume.bestspeed = resume.bestspeed.toFixed(1);
         resume.bestdistance = resume.bestdistance.toFixed(1);
 
-        this.save();
+        self.save();
     };
 
     return this;
 }])
 
 // Service to store sessions
-.factory('Equipments', ['FileFactory', 'Sessions', function(FileFactory, Sessions) {
+.factory('Equipments', ['FileFactory', function(FileFactory) {
     'use strict';
     var equipments = [];
     var self = this;
 
     this.save = function() {
         var sf = new FileFactory();
-        return sf.writeJSON(sf.getDefaultPath(), 'equipments', equipments);     
+        return sf.writeJSON(sf.getDefaultPath(), 'equipments', equipments);
     };
 
     this.getEquipments = function() {
-        return equipments; 
+        return equipments;
     };
 
     this.load = function() {
         var sf = new FileFactory();
         return sf.readJSON(sf.getDefaultPath(), 'equipments')
                  .then(function(obj){
-                    equipments = obj;
-                 });
+                    if (obj) {
+                      equipments = obj;
+                    } else {
+                      equipments = [];
+                    }
+                  });
     };
 
     this.getAt = function(idx) {
@@ -1229,7 +1639,7 @@ angular.module('app.services', [])
         } else {
             equipments.push(eq);
         }
-   
+
         try {
             return self.save();
         } catch(err) {
@@ -1237,24 +1647,24 @@ angular.module('app.services', [])
         }
     };
 
-    this.compute = function() {
+    this.compute = function(sessions) {
         var distance = {};
         if (equipments) {
-            Sessions.getSessions().map(function(session){
-                if (session.equipments === undefined) { 
-                    session.equipments = equipments.map(function(eq){
-                        if (eq.isDefault) {return eq;}
-                    }).filter(function(eq) {
-                        return eq !== undefined;
+            sessions.map(function(session){
+                if (session.equipments === undefined) {
+                    session.equipments = equipments.filter(function(eq){
+                        return eq.isDefault === true;
                     });
                 }
                 session.equipments.map(function(eq){
-                    if (!distance[eq.uuid]) {
-                        distance[eq.uuid] = 0; }
-                    distance[eq.uuid] += session.distance;
+                    if (eq.uuid) {
+                        if (!distance[eq.uuid]) {
+                            distance[eq.uuid] = 0; }
+                        distance[eq.uuid] += session.distance;
+                    }
                 });
             });
-        
+
             equipments = equipments.map(function(eq) {
                 if (distance[eq.uuid]) {
                     eq.distance = distance[eq.uuid].toFixed(1); }
@@ -1270,14 +1680,14 @@ angular.module('app.services', [])
 
 
 // Service to store sessions
-.factory('Sessions', ['FileFactory', 'Session', function(FileFactory, Session) {
+.factory('Sessions', ['FileFactory', 'Session', 'Equipments', function(FileFactory, Session, Equipments) {
     'use strict';
     var sessions = [];
     var self = this;
 
     this.save = function() {
         var sf = new FileFactory();
-        return sf.writeJSON(sf.getDefaultPath(), 'sessions', sessions);    
+        return sf.writeJSON(sf.getDefaultPath(), 'sessions', sessions);
     };
 
     this.importFIT = function(file) {
@@ -1285,11 +1695,11 @@ angular.module('app.services', [])
         var reader = new FileReader();
         var session = {};
 
-        // Require the module 
+        // Require the module
         var EasyFit = window.easyFit.default;
 
         reader.onloadend = function() {
-        
+
             // Create a EasyFit instance (options argument is optional)
             var easyFit = new EasyFit({
                 force: true,
@@ -1316,28 +1726,28 @@ angular.module('app.services', [])
                                 session.gpxData.push([pnt.position_lat, pnt.position_long, pnt.timestamp, pnt.altitude, pnt.heart_rate, 0, pnt.cadence, pnt.power, pnt.vertical_oscillation]);
                             }
                         }
- 
+
                         session.recclicked = new Date(session.gpxData[0][2]).getTime();
-                        Session.initWith(session);
-                        Session.compute().then(self.appendOrWrite);
-                   } 
+                        Session.compute(session).then(self.appendOrWrite);
+                   }
                }
             });
         };
         reader.readAsArrayBuffer(file);
     };
-    
+
 
     this.importGPX = function(fileuri){
-        console.log('importing GPX:'+fileuri);
+        console.log('importing GPX:'+fileuri.name);
         var reader = new FileReader();
+        var session = {};
 
         reader.onloadend = function() {
             var x2js = new X2JS();
             var json = x2js.xml_str2json(this.result);
 
             var gpxPoints = [];
-                
+
             if (json.gpx.trk.trkseg instanceof Array) {
                 json.gpx.trk.trkseg.map(function(item) {
                     gpxPoints = gpxPoints.concat(item.trkpt);
@@ -1345,17 +1755,16 @@ angular.module('app.services', [])
             } else {
                 gpxPoints = json.gpx.trk.trkseg.trkpt;
             }
-            
+
             //NOW RECOMPUTE AND CREATE
-            Session.session = {};
-            Session.session.gpxData = [];
+            session.gpxData = [];
 
             gpxPoints.map(function(item) {
                 var bpms;
                 var accuracy;
                 var power;
                 var cadence;
-                var stryde;
+                var strike;
 
                 try {
                     bpms = parseFloat(item.extensions.TrackPointExtension.hr.__text);
@@ -1394,27 +1803,25 @@ angular.module('app.services', [])
                     }
                 }
                 try {
-                    stryde = parseFloat(item.extensions.TrackPointExtension.stryde.__text);
+                    strike = parseFloat(item.extensions.TrackPointExtension.strike.__text);
                 } catch (exception) {
                     try {
-                        stryde = parseFloat(item.extensions.stryde.__text);
+                        strike = parseFloat(item.extensions.strike.__text);
                     } catch (exception2) {
-                        stryde = undefined;
+                        strike = undefined;
                     }
                 }
-
-
-                Session.session.gpxData.push([item._lat, item._lon, item.time, item.ele, bpms, accuracy, cadence, power, stryde]);
+                
+                session.gpxData.push([item._lat, item._lon, item.time, item.ele, bpms, accuracy, cadence, power, strike]);
             });
 
-            Session.session.recclicked = new Date(gpxPoints[0].time).getTime();
+            session.recclicked = new Date(gpxPoints[0].time).getTime();
             //Save session already compute session
-            //Session.initWith(Session.session);
-            Session.compute().then(self.appendOrWrite);
+            Session.compute(session).then(self.appendOrWrite);
         };
 
         reader.readAsText(fileuri);
- 
+
     };
 
     this.clean = function() {
@@ -1452,7 +1859,11 @@ angular.module('app.services', [])
         var sf = new FileFactory();
         return sf.readJSON(sf.getDefaultPath(), 'sessions')
                  .then(function(obj){
-                    sessions = obj;
+                    if (obj) {
+                        sessions = obj;
+                    } else {
+                        sessions = [];
+                    }
                  })
                  .then(this.sort)
                  .then(this.clean);
@@ -1460,7 +1871,7 @@ angular.module('app.services', [])
 
     this.getAt = function(idx) {
         var session = sessions[idx];
-        
+
         //Check sanity
         if ((session.map === undefined)) {
             session.map = {
@@ -1481,30 +1892,67 @@ angular.module('app.services', [])
                 }
             };
         }
+
+        if (session.equipments) {
+            var eqs;
+            Equipments.load().then(function() {eqs = Equipments.getEquipments();})
+                .then(function() {
+                    session.equipments = eqs.filter(function(eq) {
+                        return eq.isDefault === true;
+                    });
+                });
+        }
+
         return session;
     };
 
-    this.appendOrWrite = function(session) {
-        var fnd = -1;
-        for (var idx = 0; idx < sessions.length; idx++) {
-            if (sessions[idx].recclicked === session.recclicked) {
-                fnd = idx;
+    this.deleteByID = function(session_id) {
+        if ((sessions === undefined) || (sessions === null)) {
+            self.load().then(self.deleteByID(session_id)); }
+        else {
+            var fnd = -1;
+            for (var idx = 0; idx < sessions.length; idx++) {
+                if (sessions[idx].recclicked === session_id) {
+                    fnd = idx;
+                }
+            }
+            if (fnd >= 0) {
+               sessions.splice(fnd, 1);
+            } 
+
+            try {
+                return self.save();
+            } catch(err) {
+                console.warn(err);
             }
         }
+    };
 
-        if (fnd >= 0) {
-            sessions[fnd] = session;
-        } else {
-            sessions.push(session);
+    this.appendOrWrite = function(session) {
+        if ((sessions === undefined) || (sessions === null)) {
+            self.load().then(self.appendOrWrite(session)); }
+        else {
+            var fnd = -1;
+            for (var idx = 0; idx < sessions.length; idx++) {
+                if (sessions[idx].recclicked === session.recclicked) {
+                    fnd = idx;
+                }
+            }
+
+            if (fnd >= 0) {
+                sessions[fnd] = session;
+            } else {
+                sessions.push(session);
+            }
+
+            try {
+                return self.save();
+            } catch(err) {
+                console.warn(err);
+            }
+            Session.initWith(session);
+            Session.exportGPX();
         }
-   
-        try {
-            return self.save();
-        } catch(err) {
-            console.warn(err);
-        }
-        Session.initWith(session);
-        Session.exportGPX();
     };
 
     return this;
