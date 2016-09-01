@@ -51,19 +51,18 @@
     "org.apache.cordova.globalization",
     "com.megster.cordova.ble",
     "cordova-plugin-globalization",
-    "cordova-plugin-mauron85-background-geolocation",
     {
       "locator": "https://github.com/boltex/cordova-plugin-powermanagement.git",
       "id": "at.gofg.sportscomputer.powermanagement"
     },
-    "cordova-plugin-crosswalk-webview",
     "cordova-plugin-gpslocation",
     "cordova-plugin-file-transfer",
     "cordova-plugin-camera",
     {
       "locator": "https://github.com/napolitano/cordova-plugin-intent",
       "id": "com.napolitano.cordova.plugin.intent"
-    }
+    },
+    "cordova-plugin-crosswalk-webview"
   ],
   "cordovaPlatforms": [
     "android"

@@ -19,6 +19,7 @@ function average(arr, prec) {
 }
 
 function parseFloatOr(shouldbefloat) {
+    'use strict';
     try {
         return parseFloat(shouldbefloat);
     } catch(err) { 

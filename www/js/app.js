@@ -15,7 +15,7 @@ angular.module('app', ['ionic', 'app.services', 'app.controllers', 'chart.js', '
         if (window.StatusBar) {
             StatusBar.styleDefault();
         }
-        window.oldConsole = { error: console.error, log: console.log, warn: console.warn, info: console.info };
+        /*window.oldConsole = { error: console.error, log: console.log, warn: console.warn, info: console.info };
         window.initialLogs = [];
 
         if (window.cordova) {
@@ -49,7 +49,7 @@ angular.module('app', ['ionic', 'app.services', 'app.controllers', 'chart.js', '
             window.oldConsole.error.apply(this, argsArr);
             window.initialLogs.push(argsArr);
             };
-        }
+        }*/
         
         if (window.device) { 
             console.log(window.device); }
@@ -317,7 +317,7 @@ angular.module('app', ['ionic', 'app.services', 'app.controllers', 'chart.js', '
     _pace_in_mvt: 'Moving Pace',
     _spm_label: 'spm',
     _power: 'Power',
-    _cadence: 'Step Rate',
+    _cadence: 'Cadence',
     _sendlogs: 'Send logs',
     _equipments: 'Equipments',
     _add_equipment: 'Add a equipment',

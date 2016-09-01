@@ -1,5 +1,84 @@
 angular.module('app.services', [])
 
+
+.factory('SessionsStorage', function($q) {
+    'use strict';
+    var self = this;
+    var Storage = function() { };
+    
+    Storage.prototype = {
+        openDatabase: function() {
+            var deferred = $q.defer();
+            self.db = window.sqlitePlugin.openDatabase({name: 'sessions.db', location: 'default'});
+            self.db.transaction(function(tx) {
+                tx.executeSql('CREATE TABLE IF NOT EXISTS Sessions (idx, json)');
+            }, function(error) {
+                console.log('Transaction ERROR: ' + error.message);
+                return deferred.reject(error.message);
+            }, function() {
+                console.log('Populated database OK');
+                return deferred.resolve();
+            });
+            return deferred.promise;
+        },
+        appendOrUpdate: function(session) {
+            var deferred = $q.defer(); 
+            self.db.executeSql('SELECT count(*) AS exist FROM Sessions WHERE idx=?', [session.recclicked], function(rs) {
+                if (rs.rows.item(0).exist === 1) {
+                    self.db.executeSql('Update Sessions set json=? WHERE idx=?', [JSON.stringify(session), session.recclicked], function(rs) {
+                        return deferred.resolve(rs);
+                    }, function(error) {
+                        return deferred.reject(error);
+                    });
+                } else {
+                    self.db.executeSql('INSERT INTO Sessions (idx, json) VALUES (?,?)', [session.recclicked, JSON.stringify(session)], function(rs) {
+                        return deferred.resolve(rs);
+                    }, function(error) {
+                        return deferred.reject(error);
+                    });
+                }
+
+                return deferred.resolve(rs.rows.item(0).json);
+            }, function(error) {
+                console.log('SELECT SQL statement ERROR: ' + error.message);
+                return deferred.reject(error.message);
+            });
+            return deferred.promise;
+        },
+        getSession: function(idx) {
+            var deferred = $q.defer();
+            self.db.executeSql('SELECT json AS json FROM Sessions WHERE idx=?', [idx], function(rs) {
+                console.log('Record count (expected to be 2): ' + rs.rows.item(0).json);
+                return deferred.resolve(JSON.parse(rs.rows.item(0).json));
+            }, function(error) {
+                console.log('SELECT SQL statement ERROR: ' + error.message);
+                return deferred.reject(error.message);
+            });
+            return deferred.promise;
+        },
+        getSessions: function() {
+            var deferred = $q.defer();
+            self.db.executeSql('SELECT json FROM Sessions', [], function(rs) {
+                console.log('Record count (expected to be 2): ' + rs.rows);
+                return deferred.resolve(
+                    objs = [];
+                    for (var idx=0; idx < rs.rows.length; idx++) {
+                        try {
+                        objs.push(JSON.parse(rs.rows.item(idx).json));}
+                        catch(err) {console.warn(err);}
+                    }
+                    return objs;
+                }));
+            }, function(error) {
+                console.log('SELECT SQL statement ERROR: ' + error.message);
+                return deferred.reject(error.message);
+            });
+            return deferred.promise;
+        },
+    };
+    return Storage;
+})
+
 .factory('FileFactory', function($q) {
     'use strict';
     var self = this;
@@ -99,7 +178,7 @@ angular.module('app.services', [])
                         }, function(fileEntry) {
                             fileEntry.createWriter(function(writer) {
                                 // Already in JSON Format
-                                writer.onwrite = function() {
+                                writer.onwriteend = function() {
                                     deferred.resolve();
                                 };
                                 writer.onerror = function(error) {
@@ -132,7 +211,6 @@ angular.module('app.services', [])
             return deferred.promise;
         },
 
-
        writeJSON: function(path, name, obj) {
             var deferred = $q.defer();
             //var path = this.getDefaultPath;
@@ -144,21 +222,33 @@ angular.module('app.services', [])
                         fileSystem.getFile(name, {
                             create: true
                         }, function(fileEntry) {
-                            fileEntry.createWriter(function(writer) {
-                                // Already in JSON Format
-                                writer.onwrite = function() {
-                                    deferred.resolve();
-                                };
-                                writer.onerror = function(error) {
+                            var idx = 0;
+                            var bloby = new Blob([JSON.stringify(obj)], {type: 'text/plain'});
+                            var writechunk = function() {
+                                fileEntry.createWriter(function(writer) {
+                                    // Already in JSON Format
+                                    writer.onwriteend = function() {
+                                        if (idx * 2097152 > bloby.size)
+                                        {
+                                            deferred.resolve();
+                                        }
+                                        else {
+                                            idx += 1;
+                                            writechunk();
+                                        }
+                                    };
+                                    writer.onerror = function(error) {
+                                        deferred.reject(error);
+                                    };
+                                    writer.fileName = name;
+                                    writer.seek(idx * 2097152);
+                                    writer.write(bloby.slice(idx*2097152, Math.min((idx+1)*2097152, bloby.size)));
+                                }, function(error) {
                                     deferred.reject(error);
-                                };
-                                writer.fileName = name;
-                                writer.write(new Blob([JSON.stringify(obj)], {
-                                    type: 'text/plain'
-                                }));
-                            }, function(error) {
-                                deferred.reject(error);
-                            });
+                                });
+                            };
+                            writechunk();
+
                         }, function(error) {deferred.reject(error);});
                         } else {
                             deferred.resolve(fileSystem);
@@ -199,8 +289,8 @@ angular.module('app.services', [])
                 window.resolveLocalFileSystemURL(path, function(fileEntry){
                     fileEntry.file(function(file) {
                         var reader = new FileReader();
-                        reader.onloadend = function() {
-                            deferred.resolve(JSON.parse(this.result,
+                        reader.onloadend = function(evt) {
+                            deferred.resolve(JSON.parse(evt.target.result,
                                                         this.dateTimeReviver));
                         }; reader.readAsText(file);
                     });
@@ -225,7 +315,7 @@ angular.module('app.services', [])
 })
 
 
-// Service to store sessions
+// Service to store prefs
 .factory('Prefs', ['$translate', 'FileFactory', function($translate, FileFactory) {
     'use strict';
     var prefs = {
@@ -379,24 +469,30 @@ angular.module('app.services', [])
 
     this.startBLEScan = function() {
         var registered_devices = Prefs.get('registeredBLE');
-        // https://developer.bluetooth.org/gatt/services/Pages/ServiceViewer.aspx?u=org.bluetooth.service.heart_rate.xml
-        if ((Object.keys(registered_devices.length > 0) && (!connected))) {
-            ble.scan([ble_services.heartRate.service], 5,
-                //onScan
-                function(peripheral) {
-                    console.debug('Found ' + JSON.stringify(peripheral));
-                    if (peripheral.id in registered_devices) {
-                        ble.connect(peripheral.id,
-                            self.onConnect,
-                            self.onDisconnect);
-                    } else {
-                        console.debug('Device ' + peripheral.id + ' not registered');
-                    }
+        
+        try {
+            // https://developer.bluetooth.org/gatt/services/Pages/ServiceViewer.aspx?u=org.bluetooth.service.heart_rate.xml
+            if ((Object.keys(registered_devices.length > 0) && (!connected))) {
+                ble.scan([ble_services.heartRate.service], 5,
+                    //onScan
+                    function(peripheral) {
+                        console.debug('Found ' + JSON.stringify(peripheral));
+                        if (peripheral.id in registered_devices) {
+                            ble.connect(peripheral.id,
+                                self.onConnect,
+                                self.onDisconnect);
+                        } else {
+                            console.debug('Device ' + peripheral.id + ' not registered');
+                        }
 
-                }, function() {
-                    console.error('BluetoothLE scan failed');
-                }
-            );
+                    }, function() {
+                        console.error('BluetoothLE scan failed');
+                    }
+                );
+            }
+        }
+        catch(err) {
+            console.warn('Ble probably not available : ' + err);
         }
     };
 
@@ -524,7 +620,7 @@ angular.module('app.services', [])
 }])
 
 // Service to store sessions
-.factory('Session', ['Prefs','leafletBoundsHelpers', '$filter', '$q', '$http', 'FileFactory', 'Speech', function(Prefs, leafletBoundsHelpers, $filter, $q, $http, FileFactory, Speech) {
+.factory('Session', ['Prefs','leafletBoundsHelpers', '$filter', '$q', '$http', 'FileFactory', 'Speech', '$weather', function(Prefs, leafletBoundsHelpers, $filter, $q, $http, FileFactory, Speech, $weather) {
     'use strict';
     var session = {};
     var self = this;
@@ -532,6 +628,10 @@ angular.module('app.services', [])
 
     this.initWith = function(sess) {
         session = sess;
+    };
+
+    this.getRunningSession = function() {
+        return recording;
     };
 
     this.recordPosition = function(position) {
@@ -582,18 +682,20 @@ angular.module('app.services', [])
               recording.new_lat.toFixed(6),
               recording.new_lon.toFixed(6),
               new Date(recording.new_time).toISOString(),
-              recording.new_alt.toFixed(6),
-              recording.bpms.toFixed(0),
-              recording.cadence.toFixed(0),
-              recording.power.toFixed(0),
-              recording.strike.toFixed(2)
+              parseFloatOr(recording.new_alt).toFixed(6),
+              recording.bpms,
+              recording.new_accuracy,
+              recording.cadence,
+              recording.power,
+              recording.strike
           ];
           recording.gpxData.push(pointData);
           recording.lastrecordtime = recording.new_time;
       }
 
-      if (recording.firsttime === 0) {
+      if (recording.firsttime === undefined) {
         recording.firsttime = recording.new_time;
+        recording.lastrecordtime = recording.new_time;
         recording.lastdisptime = recording.new_time;
         recording.lastdistvocalannounce = 0;
         recording.lasttimevocalannounce = recording.new_time;
@@ -616,14 +718,16 @@ angular.module('app.services', [])
         recording.cadence = undefined;
         recording.power = undefined;
         recording.strike= undefined;
+
+        recording.gpxData = [];
       } else {
-        recording.elapsed = recording.time_new - recording.firsttime;
+        recording.elapsed = recording.new_time - recording.firsttime;
         var hour = Math.floor(recording.elapsed / 3600000);
         var minute = ('0' + (Math.floor(recording.elapsed / 60000) - hour * 60)).slice(-2);
         var second = ('0' + Math.floor(recording.elapsed % 60000 / 1000)).slice(-2);
         recording.time = hour + ':' + minute + ':' + second;
 
-        if ((recording.accuracy <= Prefs.get('minrecordingaccuracy'))) {
+        if ((recording.new_accuracy <= Prefs.get('minrecordingaccuracy'))) {
             // Instant speed
             if ((recording.gps_speed) && (recording.gps_speed>0)){
                 recording.speeds.push(recording.gps_speed);
@@ -687,7 +791,7 @@ angular.module('app.services', [])
                     }
                     if (parseInt(Prefs.get('timefastvocalinterval')) > 0) {
                         if ((recording.lastfastvocalannounce !== -1) &&
-                            ((recording.time_new - recording.lastfastvocalannounce) > Prefs.get('timefastvocalinterval') * 60000)) /*fixme*/ {
+                            ((recording.new_time - recording.lastfastvocalannounce) > Prefs.get('timefastvocalinterval') * 60000)) /*fixme*/ {
                             recording.lastslowvocalannounce = recording.new_time;
                             recording.lastfastvocalannounce = -1;
                             Speech.speak($filter('translate')('_run_slow'));
@@ -695,8 +799,22 @@ angular.module('app.services', [])
                     }
                 }
             }
+
+            // Record Weather
+            if (recording.weather === '') {
+                $weather.byLocation({
+                    'latitude': recording.new_lat,
+                    'longitude': recording.new_lon
+                }).then(function(weather) {
+                    recording.weather = weather;
+                });
+            }
+
+
         }
       }
+
+     
     };
 
     this.computeKalmanLatLng = function(datas) {
@@ -825,6 +943,8 @@ angular.module('app.services', [])
           oldLng = gpxPoints[p].lng;
           oldLat = gpxPoints[p].lat;
       }
+    
+      return distance;
     };
 
     this.compute = function(session) {
@@ -960,6 +1080,10 @@ angular.module('app.services', [])
             var dwithoutpause = 0;
 
             for (var p = 0; p < gpxPoints.length; p++) {
+                if (gpxPoints[p].accuracy > Prefs.get('minrecordingaccuracy')) {
+                    continue;
+                }
+
                 curLat = gpxPoints[p].lat;
                 curLng = gpxPoints[p].lng;
                 curEle = gpxPoints[p].ele;
@@ -1543,49 +1667,49 @@ angular.module('app.services', [])
         resume.bestdistance = 0;
         resume.bestspeed = 0;
 
-        Sessions.getSessions().map(function(item) {
+        Sessions.getSessions().then(function(sessions) {
+            sessions.map(function(item) {
+                resume.chart_labels.push(item.date);
+                try {
+                resume.chart_data[1].push(item.duration.getUTCMinutes() + item.duration.getUTCHours() * 60);
+                resume.chart_data[0].push(item.overnote);
+                resume.elapsed += item.duration.getTime();
+                } catch(err) {console.error('item.duration.getUTCMinutes'); }
+                resume.avspeed += item.speed;
+                resume.equirect += item.distance;
+                resume.overnote += parseFloat(item.overnote);
 
-            resume.chart_labels.push(item.date);
-            try {
-             resume.chart_data[1].push(item.duration.getUTCMinutes() + item.duration.getUTCHours() * 60);
-             resume.chart_data[0].push(item.overnote);
-             resume.elapsed += item.duration.getTime();
-            } catch(err) {console.error('item.duration.getUTCMinutes'); }
-            resume.avspeed += item.speed;
-            resume.equirect += item.distance;
-            resume.overnote += parseFloat(item.overnote);
 
+                if (item.speed > resume.bestspeed) {
+                    resume.bestspeed = item.speed;
+                }
+                if (item.duration > resume.longesttime) {
+                    resume.longesttime = item.duration;
+                }
+                if (item.distance > resume.bestdistance) {
+                    resume.bestdistance = item.distance;
+                }
+            });
 
-            if (item.speed > resume.bestspeed) {
-                resume.bestspeed = item.speed;
+            if (resume.chart_labels.length > 25) {
+                resume.chart_labels = resume.chart_labels.slice(0, 24);
+                resume.chart_data[0] = resume.chart_data[0].slice(0, 24);
+                resume.chart_data[1] = resume.chart_data[1].slice(0, 24);
             }
-            if (item.duration > resume.longesttime) {
-                resume.longesttime = item.duration;
-            }
-            if (item.distance > resume.bestdistance) {
-                resume.bestdistance = item.distance;
-            }
+            resume.chart_labels.reverse();
+            resume.chart_data[0].reverse();
+            resume.chart_data[1].reverse();
 
+            resume.flatdistance = (resume.equirect / sessions.length).toFixed(1);
+            resume.avspeed = (resume.avspeed / sessions.length).toFixed(1);
+            resume.avduration = new Date(resume.elapsed / sessions.length);
+            resume.overnote = Math.round((resume.overnote / sessions.length), 1);
+
+            resume.bestspeed = resume.bestspeed.toFixed(1);
+            resume.bestdistance = resume.bestdistance.toFixed(1);
+
+            self.save();
         });
-
-        if (resume.chart_labels.length > 25) {
-            resume.chart_labels = resume.chart_labels.slice(0, 24);
-            resume.chart_data[0] = resume.chart_data[0].slice(0, 24);
-            resume.chart_data[1] = resume.chart_data[1].slice(0, 24);
-        }
-        resume.chart_labels.reverse();
-        resume.chart_data[0].reverse();
-        resume.chart_data[1].reverse();
-
-        resume.flatdistance = (resume.equirect / Sessions.getSessions().length).toFixed(1);
-        resume.avspeed = (resume.avspeed / Sessions.getSessions().length).toFixed(1);
-        resume.avduration = new Date(resume.elapsed / Sessions.getSessions().length);
-        resume.overnote = Math.round((resume.overnote / Sessions.getSessions().length), 1);
-
-        resume.bestspeed = resume.bestspeed.toFixed(1);
-        resume.bestdistance = resume.bestdistance.toFixed(1);
-
-        self.save();
     };
 
     return this;
@@ -1626,7 +1750,7 @@ angular.module('app.services', [])
         equipments.splice(idx,1);
     };
 
-    this.appendOrWrite = function(eq) {
+    this.appendOrUpdate = function(eq) {
         var fnd = -1;
         for (var idx = 0; idx < equipments.length; idx++) {
             if (equipments[idx].uuid === eq.uuid) {
@@ -1680,7 +1804,7 @@ angular.module('app.services', [])
 
 
 // Service to store sessions
-.factory('Sessions', ['FileFactory', 'Session', 'Equipments', function(FileFactory, Session, Equipments) {
+.factory('Sessions', ['FileFactory', 'Session', 'Equipments', 'SessionsStorage', function(FileFactory, Session, Equipments, SessionsStorage) {
     'use strict';
     var sessions = [];
     var self = this;
@@ -1728,7 +1852,7 @@ angular.module('app.services', [])
                         }
 
                         session.recclicked = new Date(session.gpxData[0][2]).getTime();
-                        Session.compute(session).then(self.appendOrWrite);
+                        Session.compute(session).then(self.appendOrUpdate);
                    }
                }
             });
@@ -1817,7 +1941,7 @@ angular.module('app.services', [])
 
             session.recclicked = new Date(gpxPoints[0].time).getTime();
             //Save session already compute session
-            Session.compute(session).then(self.appendOrWrite);
+            Session.compute(session).then(self.appendOrUpdate);
         };
 
         reader.readAsText(fileuri);
@@ -1852,11 +1976,15 @@ angular.module('app.services', [])
     };
 
     this.getSessions = function() {
-        return sessions;
+        //return sessions;
+        var ss = new SessionsStorage;
+        return ss.getSessions();
     };
 
     this.load = function() {
-        var sf = new FileFactory();
+        var ss = new SessionsStorage;
+        return ss.openDatabase();
+        /*var sf = new FileFactory();
         return sf.readJSON(sf.getDefaultPath(), 'sessions')
                  .then(function(obj){
                     if (obj) {
@@ -1866,12 +1994,16 @@ angular.module('app.services', [])
                     }
                  })
                  .then(this.sort)
-                 .then(this.clean);
+                 .then(this.clean);*/
+
     };
 
     this.getAt = function(idx) {
-        var session = sessions[idx];
+        var ss = new SessionsStorage;
+        return ss.getSession(idx);
 
+        /*
+        var session
         //Check sanity
         if ((session.map === undefined)) {
             session.map = {
@@ -1903,7 +2035,7 @@ angular.module('app.services', [])
                 });
         }
 
-        return session;
+        return session;*/
     };
 
     this.deleteByID = function(session_id) {
@@ -1928,8 +2060,11 @@ angular.module('app.services', [])
         }
     };
 
-    this.appendOrWrite = function(session) {
-        if ((sessions === undefined) || (sessions === null)) {
+    this.appendOrUpdate = function(session) {
+        var ss = new SessionsStorage();
+        return ss.appendOrUpdate(session);
+        
+        /*if ((sessions === undefined) || (sessions === null)) {
             self.load().then(self.appendOrWrite(session)); }
         else {
             var fnd = -1;
@@ -1946,13 +2081,14 @@ angular.module('app.services', [])
             }
 
             try {
-                return self.save();
+                return self.save().then(function(){
+                    Session.initWith(session);
+                    Session.exportGPX();
+                });
             } catch(err) {
                 console.warn(err);
             }
-            Session.initWith(session);
-            Session.exportGPX();
-        }
+       }*/
     };
 
     return this;

@@ -118,7 +118,7 @@ angular.module('app.controllers', [])
     //Language
     try {
         navigator.globalization.getPreferredLanguage(
-        function (language) { $scope.prefs.language = language.value; console.log('Prefered language: ' + $scope.prefs.language);},
+        function (language) { Prefs.set('language', language.value); console.log('Prefered language: ' + language.value);},
         function () {console.error('Error getting language\n');}
     );} catch(err) {
          console.info('Globalization module probably not available: ' + err);
@@ -333,6 +333,8 @@ angular.module('app.controllers', [])
                 navigator.geolocation.clearWatch($scope.session.watchId);
                 console.debug('Session recording stopped');
             }
+            if ($scope.watchBgId) {
+                GPSLocation.clearWatch($scope.watchBgId);}
             //backgroundGeoLocation.stop();
             $interval.cancel($scope.runningTimeInterval);
             if ($scope.session.gpxData.length > 0) {
@@ -415,13 +417,13 @@ angular.module('app.controllers', [])
                     console.error(err);
                 }
 
-                var stopMusic = (cb && $scope.prefs.togglemusic);
+                var stopMusic = (cb && Prefs.get('togglemusic'));
 
                 var utterance = new SpeechSynthesisUtterance();
 
                 utterance.text = text;
                 utterance.volume = 1;
-                utterance.lang = ($scope.prefs.language);
+                utterance.lang = Prefs.get('language');
 
 
                 if (stopMusic) {
@@ -490,7 +492,7 @@ angular.module('app.controllers', [])
         $scope.speakText(speechText);
     };
 
-    $scope.recordPosition = function(pos) {
+/*    $scope.recordPosition = function(pos) {
         console.debug('recordPosition');
         if ($scope.mustdelay === false) {
             var latnew = pos.coords.latitude;
@@ -633,7 +635,7 @@ angular.module('app.controllers', [])
                                 }
 
                                 if (parseInt(Prefs.get('timevocalinterval')) > 0) {
-                                    if ((timenew - $scope.session.lasttimevocalannounce) > Prefs.get('timevocalinterval') * 60000) /*fixme*/ {
+                                    if ((timenew - $scope.session.lasttimevocalannounce) > Prefs.get('timevocalinterval') * 60000) {
                                         $scope.session.lasttimevocalannounce = timenew;
                                         $scope.runSpeak();
                                     }
@@ -641,7 +643,7 @@ angular.module('app.controllers', [])
 
                                 if (parseInt(Prefs.get('timeslowvocalinterval')) > 0) {
                                     if (($scope.session.lastslowvocalannounce !== -1) &&
-                                        ((timenew - $scope.session.lastslowvocalannounce) > Prefs.get('timeslowvocalinterval') * 60000)) /*fixme*/ {
+                                        ((timenew - $scope.session.lastslowvocalannounce) > Prefs.get('timeslowvocalinterval') * 60000)) {
                                         $scope.session.lastslowvocalannounce = -1;
                                         $scope.session.lastfastvocalannounce = timenew;
                                         $scope.speakText($scope.translateFilter('_run_fast'));
@@ -649,7 +651,7 @@ angular.module('app.controllers', [])
                                 }
                                 if (parseInt(Prefs.get('timefastvocalinterval')) > 0) {
                                     if (($scope.session.lastfastvocalannounce !== -1) &&
-                                        ((timenew - $scope.session.lastfastvocalannounce) > Prefs.get('timefastvocalinterval') * 60000)) /*fixme*/ {
+                                        ((timenew - $scope.session.lastfastvocalannounce) > Prefs.get('timefastvocalinterval') * 60000)) {
                                         $scope.session.lastslowvocalannounce = timenew;
                                         $scope.session.lastfastvocalannounce = -1;
                                         $scope.speakText($scope.translateFilter('_run_slow'));
@@ -679,8 +681,8 @@ angular.module('app.controllers', [])
                     $scope.session.elevation = '0';
                     $scope.session.smoothed_speed = [];
                 }
-                if ((timenew - $scope.session.lastrecordtime >= $scope.prefs.minrecordinggap) &&
-                    (pos.coords.accuracy <= $scope.prefs.minrecordingaccuracy)) {
+                if (((timenew - $scope.session.lastrecordtime) >= minrecordinggap) &&
+                    (pos.coords.accuracy <= minrecordingaccuracy)) {
                     //console.log('Should record');
                     var pointData = [
                         latnew.toFixed(6),
@@ -737,7 +739,7 @@ angular.module('app.controllers', [])
 
             });
         }
-    };
+    };*/
 
     $scope.toRad = function(x) {
         return x * Math.PI / 180;
@@ -747,7 +749,7 @@ angular.module('app.controllers', [])
         console.debug('errorPosition:' + err.message + ':' + err.code);
         $scope.session.gpsGoodSignalToggle = false;
         console.debug('gpsGoodSignalToggle set to false');
-        if (($scope.prefs.gpslostannounce)) {
+        if (Prefs.get('gpslostannounce')) {
                 $scope.speakText($scope.translateFilter('_gps_lost'));
                 $scope.gpslostlastannounce = $scope.session.lastrecordtime;
         }
@@ -757,22 +759,21 @@ angular.module('app.controllers', [])
     $scope.startSession = function() {
         $scope.running = true;
 
-        $scope.session = {};
-        $scope.session.gpsGoodSignalToggle = true;
-        $scope.gpslostannounced = false;
-        $scope.session.recclicked = new Date().getTime();
-        $scope.session.date = moment().format('llll');
-
-        $scope.session.mdate = moment().format('MMMM YYYY');
-        $scope.session.ddate = new Date().getDate();
-        $scope.session.gpxData = [];
+        //$scope.session = Session.session;
+        //$scope.session.gpsGoodSignalToggle = true;
+        //$scope.gpslostannounced = false;
+        //$scope.session.recclicked = new Date().getTime();
+        //$scope.session.date = moment().format('llll');
+        //$scope.session.mdate = moment().format('MMMM YYYY');
+        //$scope.session.ddate = new Date().getDate();
+        //$scope.session.gpxData = [];
 
         /*$scope.session.unit = $scope.prefs.unit;
         $scope.session.speedlabel = $scope.glbs.speedlabel[$scope.prefs.unit];
         $scope.session.pacelabel = $scope.glbs.pacelabel[$scope.prefs.unit];
         $scope.session.distancelabel = $scope.glbs.distancelabel[$scope.prefs.unit];*/
 
-        $scope.session.lastrecordtime = 0;
+        /*$scope.session.lastrecordtime = 0;
         $scope.session.elapsed = 0;
         $scope.session.firsttime = 0;
 
@@ -799,7 +800,7 @@ angular.module('app.controllers', [])
 
         $scope.screen_lock = null;
         $scope.gps_lock = null;
-        $scope.gpslostlastannounce = 0;
+        $scope.gpslostlastannounce = 0;*/
 
         $scope.mustdelay = (Prefs.get('useDelay') === true);
         $scope.delay = new Date().getTime();
@@ -816,8 +817,8 @@ angular.module('app.controllers', [])
             cordova.plugins.backgroundMode.enable();
             cordova.plugins.backgroundMode.onactivate = function() {
                 console.log('backgroundMode onActivate');
-                $scope.session.watchBgId = GPSLocation.watchPosition(
-                    $scope.recordPosition,
+                $scope.watchBgId = GPSLocation.watchPosition(
+                    Session.recordPosition,
                     $scope.errorPosition, {
                         enableHighAccuracy: true,
                         maximumAge: 0,
@@ -860,7 +861,6 @@ angular.module('app.controllers', [])
         }
 
         try {
-            $scope.session.beatsPerMinute = null;
             $scope.btscanintervalid = setInterval($scope.heartRateScan, 10000);
         } catch (exception) {
             console.debug('ERROR: BLEScan:' + exception);
@@ -881,16 +881,16 @@ angular.module('app.controllers', [])
         }
 
         if ($scope.platform === 'android') {
-            $scope.session.watchId = GPSLocation.watchPosition(
-                $scope.recordPosition,
+            $scope.watchId = GPSLocation.watchPosition(
+                Session.recordPosition,
                 $scope.errorPosition, {
                     enableHighAccuracy: true,
                     maximumAge: 0,
                     timeout: 3000
             });
         } else {
-             $scope.session.watchId = navigator.geolocation.watchPosition(
-                $scope.recordPosition,
+             $scope.watchId = navigator.geolocation.watchPosition(
+                Session.recordPosition,
                 $scope.errorPosition, {
                     enableHighAccuracy: true,
                     maximumAge: 0,
@@ -900,6 +900,7 @@ angular.module('app.controllers', [])
 
         //Timer to update time
         $scope.runningTimeInterval = $interval(function() {
+                $scope.session = Session.getRunningSession();
                 if ($scope.session.firsttime > 0) {
                 var elapsed = Date.now() - $scope.session.firsttime;
                 var hour = Math.floor(elapsed / 3600000);
@@ -907,6 +908,7 @@ angular.module('app.controllers', [])
                 var second = ('0' + Math.floor(elapsed % 60000 / 1000)).slice(-2);
                 $scope.session.time = hour + ':' + minute + ':' + second;
                 $scope.session.elapsed = elapsed;
+                $scope.session.avpace = $scope.session.avpace;
                 }
         }, 2000);
 
@@ -930,7 +932,7 @@ angular.module('app.controllers', [])
     };
 
     $scope.saveSession = function() {
-        Sessions.appendOrWrite(Session.session)
+        Sessions.appendOrUpdate(Session.getRunningSession())
             .then($scope.updateSessionsList)
             .then($scope.updateResume);
     };
@@ -988,7 +990,7 @@ angular.module('app.controllers', [])
     };
 
     $scope.addEquipment = function(){
-        Equipments.appendOrWrite({
+        Equipments.appendOrUpdate({
            'uuid': $scope.fakeGuid(),
            'name':'Untitled Shoes',
            'distance':0,
@@ -1034,7 +1036,7 @@ angular.module('app.controllers', [])
                     e.preventDefault();
                 } else {
                     console.log($scope.equipment.name);
-                    Equipments.appendOrWrite($scope.equipment).then(function() {
+                    Equipments.appendOrUpdate($scope.equipment).then(function() {
                     $scope.equipments = Equipments.getEquipments();
                 });
                     return $scope.equipment.name;
@@ -1048,7 +1050,7 @@ angular.module('app.controllers', [])
     $scope.setDefault = function(idx) {
         $scope.equipment = Equipments.getAt(idx);
         $scope.equipment.isDefault = !$scope.equipment.isDefault;
-        Equipments.appendOrWrite($scope.equipment).then(function() {
+        Equipments.appendOrUpdate($scope.equipment).then(function() {
                     $scope.equipments = Equipments.getEquipments();
                 });
     };
@@ -1082,7 +1084,7 @@ angular.module('app.controllers', [])
             $scope.equipment = Equipments.getAt(idx);
             var newURI = $scope.savePicture(pictureURI, $scope.equipment.uuid);
             $scope.equipment.photo = newURI;
-            Equipments.appendOrWrite($scope.equipment).then(function() {
+            Equipments.appendOrUpdate($scope.equipment).then(function() {
                     $scope.equipments = Equipments.getEquipments();
                 });
         }, function(err){
@@ -1191,7 +1193,7 @@ angular.module('app.controllers', [])
     };
 
     $scope.saveSessionModifications = function() {
-        Sessions.appendOrWrite($scope.session);
+        Sessions.appendOrUpdate($scope.session);
     };
 
     /*$scope.deleteSessionByID = function(sid) {
@@ -1265,7 +1267,7 @@ angular.module('app.controllers', [])
 
             Session.compute($scope.session).then(function(session) {
                 $scope.session = session;
-                Sessions.appendOrWrite(session).then(function() {
+                Sessions.appendOrUpdate(session).then(function() {
                     $scope.sessions = Sessions.getSessions();
                     $scope.updateSessionsList();
                 });
